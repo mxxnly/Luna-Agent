@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted
+Accepted (amended: no GitHub Actions in this repo)
 
 ## Context
 
-Every change must land with a green build and tests. Releases require signed, notarized packages and a smoke checklist.
+Builds and tests must be reproducible via Makefile. Automated GitHub Actions were removed from Luna-Agent — CI for the product lives primarily around the control panel deploy; agent quality is gated locally with `make ci` / `make e2e` before release.
 
 ## Decision
 
@@ -14,20 +14,19 @@ Every change must land with a green build and tests. Releases require signed, no
 
 Canonical targets: `lint`, `test`, `test-race`, `build`, `build-app`, `integration`, `e2e`, `package`, `sign`, `notarize`, `ci`, `release-smoke`.
 
-`make ci` = lint + test + build + integration (same gate as GitHub Actions).
+`make ci` = lint + test + build + integration.
 
-### CI
+### CI / release
 
-- `.github/workflows/ci.yml` on push/PR to `main` (macos runner).
-- Fail on test/lint/build failure or secret deny-list hits in test logs.
-- `.github/workflows/release.yml` on tags `v*`: package → sign → notarize → GitHub Release + SHA-256.
+- No `.github/workflows` in this repository.
+- Sign / notarize / GitHub Release are manual (`make package`, `make sign`, `make notarize`) when certificates are available.
 
 ### Test pyramid
 
 1. **Unit** — crypto, wg FSM, api marshal, metrics sanitize, log redaction.
-2. **Integration** — agent against `mockcontrol` (enroll/heartbeat/commands).
-3. **E2E** — scripted flows; WG dry-run in CI; real TUN on staging.
-4. **Release smoke** — Gatekeeper, launchd, heartbeat on a clean Mac profile.
+2. **Integration** — agent against `mockcontrol`.
+3. **E2E** — `make e2e` (dry-run WG).
+4. **Release smoke** — `make release-smoke` on a clean Mac profile.
 
 ### Versioning
 
@@ -35,5 +34,5 @@ Embed version via `-ldflags "-X github.com/mxxnly/Luna-Agent/internal/version.Ve
 
 ## Consequences
 
-- Placeholder packages must still compile and pass `make ci`.
-- Release secrets live only in GitHub Environment `release`.
+- Contributors run `make ci` locally before merge.
+- Panel auto-deploy remains in `vpn-control-panel` only.

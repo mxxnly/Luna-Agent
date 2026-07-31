@@ -1,0 +1,305 @@
+openapi: 3.0.3
+info:
+  title: LunaAgent Control API
+  version: 1.0.0
+  description: |
+    HTTPS API implemented by a Control Server. LunaAgent enrolls with a base URL
+    and one-time code, then heartbeats and polls signed commands.
+servers:
+  - url: https://{controlHost}
+    variables:
+      controlHost:
+        default: panel.example.com
+tags:
+  - name: agent
+  - name: admin
+paths:
+  /api/v1/agent/enroll:
+    post:
+      tags: [agent]
+      summary: Exchange one-time enroll code for device credentials
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollRequest"
+      responses:
+        "200":
+          description: Enrolled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrollResponse"
+        "400":
+          description: Invalid request
+        "401":
+          description: Invalid or expired enroll code
+  /api/v1/agent/heartbeat:
+    post:
+      tags: [agent]
+      summary: Device inventory, VPN state, metrics snapshot
+      security:
+        - deviceBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HeartbeatRequest"
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeartbeatResponse"
+        "401":
+          description: Invalid device token
+  /api/v1/agent/commands:
+    get:
+      tags: [agent]
+      summary: List pending signed commands for this device
+      security:
+        - deviceBearer: []
+      responses:
+        "200":
+          description: Pending commands
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [commands]
+                properties:
+                  commands:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SignedCommand"
+  /api/v1/agent/commands/{commandId}/ack:
+    post:
+      tags: [agent]
+      summary: Acknowledge command execution result
+      security:
+        - deviceBearer: []
+      parameters:
+        - name: commandId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommandAck"
+      responses:
+        "200":
+          description: Ack stored
+        "404":
+          description: Unknown command
+  /api/v1/devices/{deviceId}/commands:
+    post:
+      tags: [admin]
+      summary: Enqueue a command for a device (control plane admin)
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminCreateCommand"
+      responses:
+        "201":
+          description: Command created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignedCommand"
+components:
+  securitySchemes:
+    deviceBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: device_token
+  schemas:
+    EnrollRequest:
+      type: object
+      required: [enroll_code, agent_version, hardware]
+      properties:
+        enroll_code:
+          type: string
+        agent_version:
+          type: string
+          example: 0.1.0
+        hardware:
+          $ref: "#/components/schemas/HardwareInfo"
+    EnrollResponse:
+      type: object
+      required: [device_id, device_token, server_pubkey]
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        device_token:
+          type: string
+          description: Store in Keychain; never log
+        server_pubkey:
+          type: string
+          description: Base64 Ed25519 public key for verifying command signatures
+        poll_interval_seconds:
+          type: integer
+          default: 15
+        heartbeat_interval_seconds:
+          type: integer
+          default: 30
+    HardwareInfo:
+      type: object
+      properties:
+        hostname:
+          type: string
+        model:
+          type: string
+        serial:
+          type: string
+        hardware_uuid:
+          type: string
+        os_version:
+          type: string
+        username:
+          type: string
+    HeartbeatRequest:
+      type: object
+      required: [device, vpn, collected_at]
+      properties:
+        device:
+          $ref: "#/components/schemas/HardwareInfo"
+        vpn:
+          $ref: "#/components/schemas/VpnStatus"
+        metrics:
+          $ref: "#/components/schemas/MetricsSnapshot"
+        collected_at:
+          type: string
+          format: date-time
+    HeartbeatResponse:
+      type: object
+      properties:
+        desired_vpn_state:
+          type: string
+          enum: [up, down, unchanged]
+          default: unchanged
+    VpnStatus:
+      type: object
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [up, down, error]
+        internal_ip:
+          type: string
+          nullable: true
+        last_error_code:
+          type: string
+          nullable: true
+          description: Stable error code; must not contain secrets
+    MetricsSnapshot:
+      type: object
+      properties:
+        cpu_pct:
+          type: number
+          format: float
+        ram_used_bytes:
+          type: integer
+          format: int64
+        ram_total_bytes:
+          type: integer
+          format: int64
+        disk_used_bytes:
+          type: integer
+          format: int64
+        disk_total_bytes:
+          type: integer
+          format: int64
+        top_cpu:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcessSample"
+        top_ram:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcessSample"
+    ProcessSample:
+      type: object
+      properties:
+        pid:
+          type: integer
+        name:
+          type: string
+        user:
+          type: string
+        cpu_pct:
+          type: number
+          format: float
+        ram_bytes:
+          type: integer
+          format: int64
+    SignedCommand:
+      type: object
+      required: [id, type, issued_at, expires_at, signature]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [vpn_up, vpn_down, apply_wg_config, rotate_token, revoke]
+        payload:
+          type: object
+          additionalProperties: true
+          description: |
+            For apply_wg_config include conf_text (full WireGuard config).
+            Never echo conf_text in agent logs.
+        issued_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        signature:
+          type: string
+          description: Base64 detached signature over canonical command bytes
+    CommandAck:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        error_code:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+          description: Human-readable; must not include secrets
+    AdminCreateCommand:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [vpn_up, vpn_down, apply_wg_config, rotate_token, revoke]
+        payload:
+          type: object
+          additionalProperties: true
+        ttl_seconds:
+          type: integer
+          minimum: 60
+          maximum: 900
+          default: 300

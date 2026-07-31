@@ -23,6 +23,9 @@ xcuserdata/
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
 
+# Swift PM
+macos/**/.build/
+
 # Go
 .bin/
 bin/
@@ -64,3 +67,4 @@ NotarizationLog.json
 # Logs
 *.log
 logs/
+dist/

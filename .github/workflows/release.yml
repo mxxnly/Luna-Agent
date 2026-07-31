@@ -1,0 +1,54 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: macos-14
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+
+      - name: CI gate
+        run: make ci && make e2e
+
+      - name: Package
+        run: make package
+        env:
+          VERSION: ${{ github.ref_name }}
+
+      - name: Sign
+        run: make sign
+        env:
+          APPLE_DEVELOPER_ID_APP: ${{ secrets.APPLE_DEVELOPER_ID_APP }}
+          APPLE_DEVELOPER_ID_INSTALLER: ${{ secrets.APPLE_DEVELOPER_ID_INSTALLER }}
+
+      - name: Notarize
+        run: make notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+
+      - name: Checksums
+        run: |
+          cd dist
+          shasum -a 256 LunaAgent.pkg lunaagentd > SHA256SUMS
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/LunaAgent.pkg
+            dist/SHA256SUMS
+            dist/lunaagentd
+          generate_release_notes: true

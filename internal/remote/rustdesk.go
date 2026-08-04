@@ -1,5 +1,5 @@
 // Package remote manages TeamViewer-like desktop access via an embedded RustDesk helper.
-// The helper ships inside LunaAgent.app — users do not install a separate app.
+// The helper ships inside LunaAgent.app — users do not install a separate app from the internet.
 package remote
 
 import (
@@ -43,6 +43,8 @@ var (
 	reSaltLine     = regexp.MustCompile(`(?m)^salt\s*=\s*(?:'[^']*'|"[^"]*"|\S+)\s*$`)
 )
 
+const userHelperAppName = "LunaRemote.app"
+
 func Current() Status {
 	mu.Lock()
 	defer mu.Unlock()
@@ -55,15 +57,10 @@ func setStatus(s Status) {
 	mu.Unlock()
 }
 
-// Enable writes org relay config + permanent password into RustDesk.toml, then
-// starts --server and one GUI.
-//
-// Important: RustDesk's `--password` CLI only works when the binary lives in
-// /Applications/RustDesk.app AND runs as root. Our helper is embedded under
-// LunaAgent.app and runs as the user LaunchAgent, so CLI always prints
-// "Installation and administrative privileges required!" with exit 0 — panel
-// saw ok while password stayed empty. We write password into RustDesk.toml
-// instead; RustDesk hashes/encrypts it on next load.
+// Enable installs the helper at a stable user path, writes relay + password, then
+// launches ONE GUI (no separate --server). Nested Resources/RustDesk-*.app loses
+// Screen Recording across kill/relaunch even while System Settings still shows
+// the toggle on — ~/Applications/LunaRemote.app keeps TCC across Remote off/on.
 func Enable(cfg Config) (Status, error) {
 	cfg.IDServer = strings.TrimSpace(cfg.IDServer)
 	cfg.Key = strings.TrimSpace(cfg.Key)
@@ -74,13 +71,12 @@ func Enable(cfg Config) (Status, error) {
 		setStatus(st)
 		return st, fmt.Errorf("id_server, key, and password required")
 	}
-	idHost := strings.Split(cfg.IDServer, ":")[0]
 	if cfg.RelayServer == "" {
-		cfg.RelayServer = idHost + ":21117"
+		cfg.RelayServer = strings.Split(cfg.IDServer, ":")[0] + ":21117"
 	}
-	relayHost := strings.Split(cfg.RelayServer, ":")[0]
 
-	app, bin, err := findHelper()
+	firstInstall := false
+	app, bin, err := ensureUserHelper(&firstInstall)
 	if err != nil {
 		st := Status{Enabled: false, Error: "helper_missing"}
 		setStatus(st)
@@ -101,39 +97,21 @@ func Enable(cfg Config) (Status, error) {
 		return st, err
 	}
 
-	server := exec.Command(bin, "--server")
-	server.Stdout = nil
-	server.Stderr = nil
-	if err := server.Start(); err != nil {
+	if err := ensureRunning(app, bin); err != nil {
 		st := Status{Enabled: false, Error: "start_failed"}
 		setStatus(st)
 		return st, err
 	}
 
 	time.Sleep(2 * time.Second)
-	_ = runQuiet(bin, 10*time.Second, "--set-custom-rendezvous-server", idHost)
-	_ = runQuiet(bin, 10*time.Second, "--set-key", cfg.Key)
-	_ = runQuiet(bin, 10*time.Second, "--set-relay-server", relayHost)
-	_ = runQuiet(bin, 10*time.Second, "--set-verification-method", "use-both-passwords")
-	_ = runQuiet(bin, 10*time.Second, "--set-approve-mode", "password")
-
 	id := strings.TrimSpace(getID(bin))
-
-	_ = writeConfig(cfg)
-	if err := ensureRunning(app, bin); err != nil {
-		_ = server.Process.Kill()
-		st := Status{Enabled: false, Error: "start_failed", RustDeskID: id}
-		setStatus(st)
-		return st, err
-	}
-
-	go func() {
-		_ = server.Wait()
-	}()
-
 	if id == "" {
 		time.Sleep(2 * time.Second)
 		id = strings.TrimSpace(getID(bin))
+	}
+
+	if firstInstall {
+		openScreenPrivacy()
 	}
 
 	st := Status{
@@ -149,15 +127,17 @@ func Enable(cfg Config) (Status, error) {
 }
 
 func Disable() Status {
-	stopHelper()
+	// Clear secrets first, then quit so in-memory password cannot linger.
 	_ = writePermanentPassword("")
 	_ = wipeConfigSecrets()
+	stopHelper()
 	st := Status{Enabled: false}
 	setStatus(st)
 	return st
 }
 
 func stopHelper() {
+	_ = exec.Command("pkill", "-f", "LunaRemote.app/Contents/MacOS").Run()
 	_ = exec.Command("pkill", "-f", "Resources/RustDesk-").Run()
 	_ = exec.Command("pkill", "-f", "RustDesk.app/Contents/MacOS").Run()
 	time.Sleep(400 * time.Millisecond)
@@ -194,30 +174,115 @@ func resourcesDir() string {
 	return filepath.Clean(filepath.Join(filepath.Dir(exe), "..", "Resources"))
 }
 
-func findHelper() (appPath, binPath string, err error) {
+func userHelperAppPath() (string, error) {
+	u, err := user.Current()
+	if err != nil || u.HomeDir == "" {
+		return "", fmt.Errorf("no home directory")
+	}
+	return filepath.Join(u.HomeDir, "Applications", userHelperAppName), nil
+}
+
+func embeddedHelperApp() (string, error) {
+	res := resourcesDir()
+	if res == "" {
+		return "", fmt.Errorf("resources dir missing")
+	}
+	arch := rustdeskArchFolder()
+	for _, name := range []string{
+		filepath.Join(res, "RustDesk-"+arch+".app"),
+		filepath.Join(res, "RustDesk.app"),
+	} {
+		bin := filepath.Join(name, "Contents/MacOS/RustDesk")
+		if st, e := os.Stat(bin); e == nil && !st.IsDir() {
+			return name, nil
+		}
+		bin = filepath.Join(name, "Contents/MacOS/rustdesk")
+		if st, e := os.Stat(bin); e == nil && !st.IsDir() {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("remote helper missing inside LunaAgent — reinstall the agent package")
+}
+
+func helperBinary(app string) string {
+	for _, name := range []string{
+		filepath.Join(app, "Contents/MacOS/RustDesk"),
+		filepath.Join(app, "Contents/MacOS/rustdesk"),
+	} {
+		if st, e := os.Stat(name); e == nil && !st.IsDir() {
+			return name
+		}
+	}
+	return ""
+}
+
+// ensureUserHelper copies the embedded helper to ~/Applications/LunaRemote.app
+// so Screen Recording TCC survives Remote off/on (nested Resources path does not).
+func ensureUserHelper(firstInstall *bool) (appPath, binPath string, err error) {
 	if p := strings.TrimSpace(os.Getenv("LUNA_RUSTDESK_BIN")); p != "" {
 		if st, e := os.Stat(p); e == nil && !st.IsDir() {
 			return "", p, nil
 		}
 	}
-	res := resourcesDir()
-	if res != "" {
-		arch := rustdeskArchFolder()
-		for _, name := range []string{
-			filepath.Join(res, "RustDesk-"+arch+".app"),
-			filepath.Join(res, "RustDesk.app"),
-		} {
-			for _, mac := range []string{
-				filepath.Join(name, "Contents/MacOS/RustDesk"),
-				filepath.Join(name, "Contents/MacOS/rustdesk"),
-			} {
-				if st, e := os.Stat(mac); e == nil && !st.IsDir() {
-					return name, mac, nil
-				}
-			}
+	src, err := embeddedHelperApp()
+	if err != nil {
+		return "", "", err
+	}
+	dst, err := userHelperAppPath()
+	if err != nil {
+		return "", "", err
+	}
+
+	srcBin := helperBinary(src)
+	dstBin := helperBinary(dst)
+	needCopy := dstBin == ""
+	if !needCopy {
+		ss, se := os.Stat(srcBin)
+		ds, de := os.Stat(dstBin)
+		if se != nil || de != nil || ss.Size() != ds.Size() || ss.ModTime().After(ds.ModTime()) {
+			needCopy = true
+		}
+	} else if firstInstall != nil {
+		*firstInstall = true
+	}
+
+	if needCopy {
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return "", "", err
+		}
+		_ = os.RemoveAll(dst)
+		cmd := exec.Command("ditto", src, dst)
+		if out, e := cmd.CombinedOutput(); e != nil {
+			return "", "", fmt.Errorf("install LunaRemote: %w (%s)", e, strings.TrimSpace(string(out)))
+		}
+		if firstInstall != nil && dstBin == "" {
+			*firstInstall = true
 		}
 	}
-	return "", "", fmt.Errorf("remote helper missing inside LunaAgent — reinstall the agent package")
+
+	bin := helperBinary(dst)
+	if bin == "" {
+		return "", "", fmt.Errorf("LunaRemote binary missing after install")
+	}
+	return dst, bin, nil
+}
+
+func findHelper() (appPath, binPath string, err error) {
+	var first bool
+	return ensureUserHelper(&first)
+}
+
+// openScreenPrivacy opens macOS Screen Recording settings (first install only).
+func openScreenPrivacy() {
+	urls := []string{
+		"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+		"x-apple.systempreferences:com.apple.Settings.PrivacySecurity.extension?Privacy_ScreenCapture",
+	}
+	for _, u := range urls {
+		if exec.Command("open", u).Run() == nil {
+			return
+		}
+	}
 }
 
 func configPaths() []string {
@@ -280,7 +345,6 @@ allow-remote-config-modification = 'N'
 }
 
 // writePermanentPassword sets password= in RustDesk.toml (plaintext; hashed on load).
-// Panel passwords are alphanumeric; single-quote TOML is safe.
 func writePermanentPassword(password string) error {
 	paths := identityTomlPaths()
 	if len(paths) == 0 {
@@ -361,10 +425,11 @@ func wipeConfigSecrets() error {
 
 func ensureRunning(app, bin string) error {
 	if app != "" {
-		if err := exec.Command("open", "-a", app).Run(); err == nil {
+		// Prefer path open (stable TCC identity) over -a by name.
+		if err := exec.Command("open", app).Run(); err == nil {
 			return nil
 		}
-		if err := exec.Command("open", app).Run(); err == nil {
+		if err := exec.Command("open", "-a", app).Run(); err == nil {
 			return nil
 		}
 	}

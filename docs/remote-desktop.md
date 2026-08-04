@@ -8,6 +8,12 @@ LunaAgent can open a **TeamViewer-like** remote session **without WireGuard**. T
 
 On first remote session, macOS may ask for **Screen Recording** / **Accessibility** for the helper (system privacy prompts). That is expected.
 
+If the operator sees **Connected, waiting for image…**, capture permission did not take effect yet:
+
+1. Grant **Screen Recording** (and **Accessibility**) to **LunaRemote** (copied to `~/Applications/LunaRemote.app` on first Remote on) — or the older `RustDesk-aarch64` entry if you have not upgraded yet.
+2. After granting: **Remote off**, quit RustDesk/LunaRemote in Activity Monitor, **Remote on** again.
+3. Agent **0.2.11+** launches from `~/Applications/LunaRemote.app` (not the nested Resources copy) so permissions survive Remote off/on without toggling System Settings each time.
+
 ## Prerequisites (ops)
 
 1. Relay on the panel VPS — see `vpn-control-panel/rustdesk/README.md`.

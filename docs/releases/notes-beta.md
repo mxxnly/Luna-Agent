@@ -10,6 +10,7 @@ Pre-release for the `0.x` line. APIs and packaging may still change before 1.0.0
 - VPN: Disconnect clears desired state before Down and fails if the tunnel stays up; UI shows handshake/helper status.
 - Home shows only whether VPN actually works; interface/handshake/helper details stay on the VPN tab (via root helper status).
 - Remote: keep custom ID server after GUI open (fixes “device offline” when helper opened on public network).
+- Remote: hard-timeout RustDesk CLI so poll/ack cannot hang; set password on --server before GUI.
 
 ## Packages
 

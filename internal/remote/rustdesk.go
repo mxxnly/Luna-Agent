@@ -3,6 +3,7 @@
 package remote
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -49,9 +50,9 @@ func setStatus(s Status) {
 
 // Enable configures the embedded remote helper for the org relay and starts it.
 //
-// Important on macOS: do not set options on a short-lived --server then kill it —
-// the GUI often boots back onto the public network. Write toml, open GUI, then
-// apply --set-* / --password against the live process and wait for an ID.
+// macOS CLI against a live GUI often hangs forever on --password/--get-id, which
+// blocked agent poll (command stuck "pending", panel password never applied).
+// All CLI calls are hard-timed-out; password is set on a short --server first.
 func Enable(cfg Config) (Status, error) {
 	cfg.IDServer = strings.TrimSpace(cfg.IDServer)
 	cfg.Key = strings.TrimSpace(cfg.Key)
@@ -76,7 +77,7 @@ func Enable(cfg Config) (Status, error) {
 	}
 
 	stopHelper()
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
 
 	if err := writeConfig(cfg); err != nil {
 		st := Status{Enabled: false, Error: "config_failed"}
@@ -84,27 +85,38 @@ func Enable(cfg Config) (Status, error) {
 		return st, err
 	}
 
+	// 1) Headless service: set password + org relay (official deploy pattern).
+	serverCtx, serverCancel := context.WithCancel(context.Background())
+	defer serverCancel()
+	server := exec.CommandContext(serverCtx, bin, "--server")
+	server.Stdout = nil
+	server.Stderr = nil
+	_ = server.Start()
+	time.Sleep(1200 * time.Millisecond)
+
+	applyRelayCLI(bin, idHost, relayHost, cfg.RelayServer, cfg.Key, cfg.Password)
+	id := strings.TrimSpace(getID(bin))
+
+	serverCancel()
+	if server.Process != nil {
+		_ = server.Process.Kill()
+	}
+	stopHelper()
+	time.Sleep(400 * time.Millisecond)
+
+	// 2) Pin config again, open GUI for Screen Recording / session UI.
+	_ = writeConfig(cfg)
 	if err := ensureRunning(app, bin); err != nil {
-		st := Status{Enabled: false, Error: "start_failed"}
+		st := Status{Enabled: false, Error: "start_failed", RustDeskID: id}
 		setStatus(st)
 		return st, err
 	}
 
-	// Give the GUI time to read toml, then force org relay (CLI sticks better live).
-	time.Sleep(2 * time.Second)
-	applyRelayCLI(bin, idHost, relayHost, cfg.RelayServer, cfg.Key, cfg.Password)
-	// GUI sometimes rewrites options on first paint — pin again.
 	time.Sleep(1500 * time.Millisecond)
-	_ = writeConfig(cfg)
+	// Best-effort re-pin (all timed out — must not block poll/ack).
 	applyRelayCLI(bin, idHost, relayHost, cfg.RelayServer, cfg.Key, cfg.Password)
-
-	id := ""
-	for i := 0; i < 8; i++ {
-		time.Sleep(500 * time.Millisecond)
+	if id == "" {
 		id = strings.TrimSpace(getID(bin))
-		if id != "" {
-			break
-		}
 	}
 
 	st := Status{
@@ -122,7 +134,6 @@ func Enable(cfg Config) (Status, error) {
 func applyRelayCLI(bin, idHost, relayHost, relayServer, key, password string) {
 	_ = runQuiet(bin, "--set-custom-rendezvous-server", idHost)
 	_ = runQuiet(bin, "--set-key", key)
-	// Some builds want host only; others accept host:port — set both shapes.
 	_ = runQuiet(bin, "--set-relay-server", relayHost)
 	if relayServer != "" && relayServer != relayHost {
 		_ = runQuiet(bin, "--set-relay-server", relayServer)
@@ -148,14 +159,20 @@ func Disable() Status {
 func stopHelper() {
 	_ = exec.Command("pkill", "-f", "Resources/RustDesk-").Run()
 	_ = exec.Command("pkill", "-f", "RustDesk.app/Contents/MacOS").Run()
-	time.Sleep(400 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 }
 
 func runQuiet(bin string, args ...string) error {
-	cmd := exec.Command(bin, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
-	return cmd.Run()
+	err := cmd.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("timeout: %s %s", bin, strings.Join(args, " "))
+	}
+	return err
 }
 
 func rustdeskArchFolder() string {
@@ -204,10 +221,7 @@ func configPaths() []string {
 	var out []string
 	if u, err := user.Current(); err == nil && u.HomeDir != "" {
 		base := filepath.Join(u.HomeDir, "Library/Preferences/com.carriez.RustDesk")
-		out = append(out,
-			filepath.Join(base, "RustDesk2.toml"),
-			filepath.Join(base, "RustDesk.toml"),
-		)
+		out = append(out, filepath.Join(base, "RustDesk2.toml"))
 	}
 	if support, err := os.UserConfigDir(); err == nil {
 		out = append(out, filepath.Join(support, "LunaAgent", "rustdesk", "RustDesk2.toml"))
@@ -226,7 +240,7 @@ func writeConfig(cfg Config) error {
 	if relay == "" {
 		relay = idOnly + ":21117"
 	}
-	body2 := fmt.Sprintf(`rendezvous_server = '%s'
+	body := fmt.Sprintf(`rendezvous_server = '%s'
 nat_type = 1
 serial = 0
 
@@ -244,19 +258,7 @@ allow-remote-config-modification = 'N'
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			continue
 		}
-		content := body2
-		// RustDesk.toml holds identity; only touch options file content for *2.toml.
-		if strings.HasSuffix(path, "RustDesk.toml") && !strings.HasSuffix(path, "RustDesk2.toml") {
-			// Do not wipe encrypted id/password store — leave file if present.
-			if _, err := os.Stat(path); err == nil {
-				continue
-			}
-			content = ""
-		}
-		if content == "" {
-			continue
-		}
-		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			return err
 		}
 		wrote = true
@@ -269,9 +271,7 @@ allow-remote-config-modification = 'N'
 
 func wipeConfigSecrets() error {
 	for _, path := range configPaths() {
-		if strings.HasSuffix(path, "RustDesk2.toml") {
-			_ = os.Remove(path)
-		}
+		_ = os.Remove(path)
 	}
 	return nil
 }
@@ -290,7 +290,10 @@ func ensureRunning(app, bin string) error {
 }
 
 func getID(bin string) string {
-	out, err := exec.Command(bin, "--get-id").CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "--get-id")
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return ""
 	}

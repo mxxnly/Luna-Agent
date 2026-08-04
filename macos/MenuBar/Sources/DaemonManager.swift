@@ -2,11 +2,15 @@ import AppKit
 import Foundation
 import ServiceManagement
 
-/// Registers login item + user agent (lunaagentd) + root daemon (luna-wghelper) via SMAppService.
+/// Registers login item + user agent (lunaagentd) + root daemon (luna-wghelper).
+/// SMAppService is preferred; ad-hoc signed builds fall back to a user LaunchAgent
+/// with an absolute path into /Applications/LunaAgent.app (codesign -67028 workaround).
 @available(macOS 13.0, *)
 enum DaemonManager {
   private static let agentPlist = "com.lunaagent.daemon.plist"
   private static let helperPlist = "com.lunaagent.wghelper.plist"
+  private static let fallbackAgentLabel = "com.lunaagent.agent"
+  private static let fallbackAgentPlistName = "com.lunaagent.agent.plist"
 
   struct StatusSnapshot {
     var loginItem: SMAppService.Status
@@ -23,6 +27,10 @@ enum DaemonManager {
 
     var notFound: Bool {
       [loginItem, agent, helper].contains(.notFound)
+    }
+
+    var agentReadyViaSMApp: Bool {
+      agent == .enabled || agent == .requiresApproval
     }
   }
 
@@ -48,12 +56,18 @@ enum DaemonManager {
     }
   }
 
-  /// Register all three services. Returns a user-visible error string, or nil on success / pending approval.
+  /// Register services. Soft-fails SMAppService agent/helper on codesign errors (adhoc builds).
   @discardableResult
   static func registerAll() -> String? {
-    var errors: [String] = []
+    // Login item usually works even on adhoc.
+    if loginItemService.status != .enabled && loginItemService.status != .requiresApproval {
+      do { try loginItemService.register() } catch {
+        NSLog("LunaAgent login item register: %@", error.localizedDescription)
+      }
+    }
+
+    var softErrors: [String] = []
     for (name, service) in [
-      ("Login item", loginItemService),
       ("Background agent", agentService),
       ("WireGuard helper", helperService),
     ] as [(String, SMAppService)] {
@@ -66,19 +80,24 @@ enum DaemonManager {
       do {
         try service.register()
       } catch {
-        errors.append("\(name): \(error.localizedDescription)")
+        // -67028 / SMAppServiceErrorDomain Code=3: adhoc signature cannot load BundleProgram plists.
+        softErrors.append("\(name): \(error.localizedDescription)")
+        NSLog("LunaAgent SMAppService register soft-fail %@: %@", name, error.localizedDescription)
       }
     }
-    if snapshot().notFound {
+
+    if snapshot().loginItem == .notFound {
       return "Move LunaAgent to /Applications, then try again."
     }
-    if errors.isEmpty { return nil }
-    return errors.joined(separator: "\n")
+    // Do not hard-fail on agent/helper SMAppService errors — fallback LaunchAgent handles agent.
+    _ = softErrors
+    return nil
   }
 
   @discardableResult
   static func unregisterAll() -> String? {
     var errors: [String] = []
+    removeFallbackUserAgent()
     for service in [helperService, agentService, loginItemService] {
       do {
         try service.unregister()
@@ -96,21 +115,120 @@ enum DaemonManager {
     }
   }
 
-  /// Ensure services are registered, then wait briefly for agent IPC.
+  /// Ensure agent IPC is up: SMAppService → user LaunchAgent fallback → one-shot spawn.
   static func ensureRunning(ipcPing: () -> Bool) -> String? {
-    if let err = registerAll() { return err }
-    if snapshot().needsApproval {
-      return "Approve LunaAgent in System Settings → General → Login Items & Extensions, then reopen."
+    cleanupLegacyScatter()
+    _ = registerAll()
+
+    if snapshot().needsApproval && snapshot().agent == .requiresApproval {
+      // Still try fallback/spawn so UI works while user approves.
+      NSLog("LunaAgent agent requires approval — using fallback start")
     }
-    for _ in 0..<30 {
+
+    for _ in 0..<20 {
       if ipcPing() { return nil }
-      Thread.sleep(forTimeInterval: 0.2)
+      Thread.sleep(forTimeInterval: 0.15)
     }
-    // Fallback: spawn bundled agent once if SMAppService has not started it yet.
+
+    if !snapshot().agentReadyViaSMApp {
+      _ = installFallbackUserAgent()
+      for _ in 0..<20 {
+        if ipcPing() { return nil }
+        Thread.sleep(forTimeInterval: 0.15)
+      }
+    }
+
     if let err = spawnBundledAgentIfNeeded(ipcPing: ipcPing) {
       return err
     }
     return nil
+  }
+
+  private static func fallbackAgentPlistURL() -> URL {
+    let dir = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent("Library/LaunchAgents", isDirectory: true)
+    return dir.appendingPathComponent(fallbackAgentPlistName)
+  }
+
+  /// Classic LaunchAgent with absolute path — works without Developer ID.
+  @discardableResult
+  static func installFallbackUserAgent() -> String? {
+    guard let bin = bundledAgentPath() else {
+      return "lunaagentd missing inside LunaAgent.app — reinstall the beta pkg"
+    }
+    let wg = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/luna-wg").path
+    let support = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent("Library/Application Support/LunaAgent", isDirectory: true).path
+    let logs = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent("Library/Logs/LunaAgent", isDirectory: true).path
+    try? FileManager.default.createDirectory(atPath: support, withIntermediateDirectories: true)
+    try? FileManager.default.createDirectory(atPath: logs, withIntermediateDirectories: true)
+
+    let plist: [String: Any] = [
+      "Label": fallbackAgentLabel,
+      "ProgramArguments": [bin],
+      "RunAtLoad": true,
+      "KeepAlive": true,
+      "ThrottleInterval": 5,
+      "ProcessType": "Background",
+      "EnvironmentVariables": [
+        "PATH": "\(wg):/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/sbin:/usr/bin:/bin",
+      ],
+      "StandardOutPath": "\(logs)/daemon.out.log",
+      "StandardErrorPath": "\(logs)/daemon.err.log",
+    ]
+
+    let url = fallbackAgentPlistURL()
+    try? FileManager.default.createDirectory(
+      at: url.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    do {
+      let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+      try data.write(to: url, options: .atomic)
+    } catch {
+      return "Failed to write LaunchAgent: \(error.localizedDescription)"
+    }
+
+    let uid = getuid()
+    let domain = "gui/\(uid)"
+    // Replace any stale definition (including deleted /usr/local jobs).
+    _ = shell(["/bin/launchctl", "bootout", "\(domain)/\(fallbackAgentLabel)"])
+    let boot = shell(["/bin/launchctl", "bootstrap", domain, url.path])
+    if boot.status != 0 {
+      // Already loaded — kickstart
+      _ = shell(["/bin/launchctl", "enable", "\(domain)/\(fallbackAgentLabel)"])
+      _ = shell(["/bin/launchctl", "kickstart", "-k", "\(domain)/\(fallbackAgentLabel)"])
+    } else {
+      _ = shell(["/bin/launchctl", "enable", "\(domain)/\(fallbackAgentLabel)"])
+      _ = shell(["/bin/launchctl", "kickstart", "-k", "\(domain)/\(fallbackAgentLabel)"])
+    }
+    NSLog("LunaAgent installed fallback LaunchAgent -> %@", bin)
+    return nil
+  }
+
+  static func removeFallbackUserAgent() {
+    let uid = getuid()
+    let domain = "gui/\(uid)"
+    _ = shell(["/bin/launchctl", "bootout", "\(domain)/\(fallbackAgentLabel)"])
+    try? FileManager.default.removeItem(at: fallbackAgentPlistURL())
+  }
+
+  private static func shell(_ args: [String]) -> (status: Int32, output: String) {
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: args[0])
+    task.arguments = Array(args.dropFirst())
+    let pipe = Pipe()
+    task.standardOutput = pipe
+    task.standardError = pipe
+    do {
+      try task.run()
+      task.waitUntilExit()
+    } catch {
+      return (1, error.localizedDescription)
+    }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    return (task.terminationStatus, String(data: data, encoding: .utf8) ?? "")
   }
 
   private static func spawnBundledAgentIfNeeded(ipcPing: () -> Bool) -> String? {
@@ -120,6 +238,15 @@ enum DaemonManager {
     }
     let task = Process()
     task.executableURL = URL(fileURLWithPath: bin)
+    var env = ProcessInfo.processInfo.environment
+    let wg = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/luna-wg").path
+    let prefix = "\(wg):/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/sbin"
+    if let path = env["PATH"], !path.isEmpty {
+      env["PATH"] = prefix + ":" + path
+    } else {
+      env["PATH"] = prefix + ":/usr/bin:/bin"
+    }
+    task.environment = env
     task.standardOutput = FileHandle.nullDevice
     task.standardError = FileHandle.nullDevice
     do {
@@ -127,11 +254,11 @@ enum DaemonManager {
     } catch {
       return "Failed to start agent: \(error.localizedDescription)"
     }
-    for _ in 0..<20 {
+    for _ in 0..<25 {
       Thread.sleep(forTimeInterval: 0.15)
       if ipcPing() { return nil }
     }
-    return "Agent started but IPC not ready yet"
+    return "Agent started but IPC not ready yet — open Finish setup again"
   }
 
   static func bundledAgentPath() -> String? {
@@ -146,15 +273,11 @@ enum DaemonManager {
     return nil
   }
 
-  /// Best-effort removal of pre-SMAppService scatter installs (user LaunchAgents).
+  /// Remove pre-SMAppService /usr/local-style user agents (not our fallback).
   static func cleanupLegacyScatter() {
+    // Keep our intentional fallback plist; only remove menubar scatter leftovers.
     let home = NSHomeDirectory()
-    let userAgents = [
-      "\(home)/Library/LaunchAgents/com.lunaagent.daemon.plist",
-      "\(home)/Library/LaunchAgents/com.lunaagent.menubar.plist",
-    ]
-    for path in userAgents {
-      try? FileManager.default.removeItem(atPath: path)
-    }
+    let menubar = "\(home)/Library/LaunchAgents/com.lunaagent.menubar.plist"
+    try? FileManager.default.removeItem(atPath: menubar)
   }
 }

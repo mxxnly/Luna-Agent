@@ -39,6 +39,8 @@ LunaAgent.app/Contents/
   MacOS/lunaagentd
   MacOS/luna-wghelper
   Resources/luna-wg/{bash,wg,wg-quick,wireguard-go}
+  Resources/RustDesk-aarch64.app
+  Resources/RustDesk-x86_64.app
   Resources/AppIcon.icns
 ```
 
@@ -50,6 +52,8 @@ Contents/Library/LaunchDaemons/com.lunaagent.wghelper.plist
 ```
 
 **Legacy** additionally stages system LaunchAgents/Daemons with absolute paths into `/Applications/LunaAgent.app/...`, plus `start-menubar.sh` / `start-wghelper.sh`.
+
+The remote helper is fetched by `scripts/fetch-rustdesk.sh` and embedded automatically — managed Macs only install LunaAgent.
 
 ## Desktop / release copy
 

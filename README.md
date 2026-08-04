@@ -31,9 +31,10 @@ Verify the SHA-256, copy the pkg to `/tmp` if Desktop/Downloads is TCC-blocked, 
 - **Connect / Disconnect** from the menu bar or the control plane
 - **Enroll** with Control URL + code → device token in Keychain
 - **Apply** full WireGuard configs with backup and rollback on failure
+- **Remote desktop** via an embedded helper (no separate app on the Mac) over your relay
 - **Heartbeat** device inventory; observe-only CPU / RAM / disk / top processes
 - **Execute** Ed25519-signed, time-limited remote commands (no replay)
-- **Ship** as a self-contained `.app` — daemon, root helper, and WG tools live inside the bundle
+- **Ship** as a self-contained `.app` — daemon, root helper, WG tools, and remote helper inside the bundle
 
 ---
 
@@ -43,6 +44,7 @@ Verify the SHA-256, copy the pkg to `/tmp` if Desktop/Downloads is TCC-blocked, 
 |-------|----------|
 | [Install](docs/install.md) · [13+](docs/install-13plus.md) · [Legacy](docs/install-legacy.md) | IT / end users |
 | [User guide](docs/user-guide.md) | Operators of enrolled Macs |
+| [Remote desktop](docs/remote-desktop.md) | RustDesk session without VPN |
 | [Architecture](docs/architecture.md) | Engineers integrating or extending |
 | [Packaging](docs/packaging.md) · [Releasing](docs/releasing.md) | Maintainers shipping builds |
 | [Development](docs/development.md) · [Contributing](CONTRIBUTING.md) | Contributors |

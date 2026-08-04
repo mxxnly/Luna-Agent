@@ -56,6 +56,10 @@ account: device_token
 
 Then re-enroll against the panel.
 
+## Remote desktop
+
+Operators can start a remote session from the panel (**Remote on**) without the VPN. The helper is **bundled inside LunaAgent** — do not install a separate remote app on the managed Mac. See [remote-desktop.md](remote-desktop.md). macOS may still prompt once for Screen Recording / Accessibility.
+
 ## Channel-specific install notes
 
 - [macOS 13+](install-13plus.md)

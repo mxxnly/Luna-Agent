@@ -55,12 +55,20 @@ type MetricsSnapshot struct {
 	TopRAM         []ProcessSample `json:"top_ram"`
 }
 
+type RemoteSessionStatus struct {
+	Enabled    bool   `json:"enabled"`
+	RustDeskID string `json:"rustdesk_id,omitempty"`
+	RelayOK    bool   `json:"relay_ok"`
+	Error      string `json:"error,omitempty"`
+}
+
 type HeartbeatRequest struct {
-	Device       HardwareInfo     `json:"device"`
-	VPN          VpnStatus        `json:"vpn"`
-	Metrics      *MetricsSnapshot `json:"metrics,omitempty"`
-	CollectedAt  time.Time        `json:"collected_at"`
-	AgentVersion string           `json:"agent_version,omitempty"`
+	Device        HardwareInfo         `json:"device"`
+	VPN           VpnStatus            `json:"vpn"`
+	Metrics       *MetricsSnapshot     `json:"metrics,omitempty"`
+	RemoteSession *RemoteSessionStatus `json:"remote_session,omitempty"`
+	CollectedAt   time.Time            `json:"collected_at"`
+	AgentVersion  string               `json:"agent_version,omitempty"`
 }
 
 type HeartbeatResponse struct {

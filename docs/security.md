@@ -29,6 +29,10 @@ Every command carries `id`, `type`, `issued_at`, `expires_at`, and a server sign
 
 Log sinks must never emit: `PrivateKey`, `PresharedKey`, `device_token`, enroll codes, or full conf bodies. Prefer stable error **codes** over raw backend strings that might echo secrets.
 
+## Remote desktop
+
+Remote mouse/keyboard uses a self-hosted RustDesk relay. Treat **Remote on** as highly privileged (full desktop control). Disable after use; revoke clears the session on the agent. Never paste session passwords into tickets.
+
 ## Reporting vulnerabilities
 
 Follow the root [SECURITY.md](../SECURITY.md). Never attach production keys, live tokens, or valid enroll codes to public issues.

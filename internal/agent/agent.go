@@ -16,6 +16,7 @@ import (
 	"github.com/mxxnly/Luna-Agent/internal/crypto"
 	"github.com/mxxnly/Luna-Agent/internal/ipc"
 	"github.com/mxxnly/Luna-Agent/internal/metrics"
+	"github.com/mxxnly/Luna-Agent/internal/remote"
 	"github.com/mxxnly/Luna-Agent/internal/secure"
 	"github.com/mxxnly/Luna-Agent/internal/store"
 	"github.com/mxxnly/Luna-Agent/internal/version"
@@ -470,12 +471,20 @@ func (a *Agent) heartbeat(applyDesired bool) error {
 		a.lastWGConfHash = ""
 	}
 	ms := metrics.Snapshot()
+	rs := remote.Current()
+	remoteStatus := &api.RemoteSessionStatus{
+		Enabled:    rs.Enabled,
+		RustDeskID: rs.RustDeskID,
+		RelayOK:    rs.RelayOK,
+		Error:      rs.Error,
+	}
 	req := api.HeartbeatRequest{
-		Device:       metrics.HostInfo(),
-		VPN:          vpnStatus,
-		Metrics:      &ms,
-		CollectedAt:  time.Now().UTC(),
-		AgentVersion: version.Version,
+		Device:        metrics.HostInfo(),
+		VPN:           vpnStatus,
+		Metrics:       &ms,
+		RemoteSession: remoteStatus,
+		CollectedAt:   time.Now().UTC(),
+		AgentVersion:  version.Version,
 	}
 	res, err := client.Heartbeat(req)
 	if err != nil {
@@ -532,7 +541,8 @@ func (a *Agent) PollOnce() error {
 		a.mu.Lock()
 		a.done[c.ID] = struct{}{}
 		a.mu.Unlock()
-		if ok && (c.Type == "vpn_up" || c.Type == "vpn_down" || c.Type == "apply_wg_config") {
+		if ok && (c.Type == "vpn_up" || c.Type == "vpn_down" || c.Type == "apply_wg_config" ||
+			c.Type == "remote_session_enable" || c.Type == "remote_session_disable") {
 			needReport = true
 		}
 	}
@@ -613,6 +623,29 @@ func (a *Agent) execCommand(c crypto.Command) (bool, string, string) {
 			os.Exit(0)
 		}()
 		return true, "", ""
+	case "remote_session_enable":
+		idServer, _ := c.Payload["id_server"].(string)
+		relay, _ := c.Payload["relay_server"].(string)
+		key, _ := c.Payload["key"].(string)
+		pw, _ := c.Payload["password"].(string)
+		st, err := remote.Enable(remote.Config{
+			IDServer:    idServer,
+			RelayServer: relay,
+			Key:         key,
+			Password:    pw,
+		})
+		if err != nil {
+			code := st.Error
+			if code == "" {
+				code = "remote_enable_failed"
+			}
+			return false, code, err.Error()
+		}
+		msg := st.RustDeskID
+		return true, "", msg
+	case "remote_session_disable":
+		remote.Disable()
+		return true, "", ""
 	default:
 		return false, "unknown_type", c.Type
 	}
@@ -649,6 +682,7 @@ func (a *Agent) validateUpdateURL(raw string) error {
 func (a *Agent) clearEnrollment() {
 	_ = a.wg.Down()
 	_ = a.wg.ClearConfigs()
+	remote.Disable()
 	_ = a.store.Clear()
 	a.mu.Lock()
 	a.state = store.State{}

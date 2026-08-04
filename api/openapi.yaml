@@ -259,7 +259,7 @@ components:
           format: uuid
         type:
           type: string
-          enum: [vpn_up, vpn_down, apply_wg_config, rotate_token, revoke]
+          enum: [vpn_up, vpn_down, apply_wg_config, rotate_token, revoke, set_admin_password, agent_update, remote_session_enable, remote_session_disable]
         payload:
           type: object
           additionalProperties: true
@@ -294,7 +294,7 @@ components:
       properties:
         type:
           type: string
-          enum: [vpn_up, vpn_down, apply_wg_config, rotate_token, revoke]
+          enum: [vpn_up, vpn_down, apply_wg_config, rotate_token, revoke, set_admin_password, agent_update, remote_session_enable, remote_session_disable]
         payload:
           type: object
           additionalProperties: true

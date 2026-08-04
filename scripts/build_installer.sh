@@ -20,6 +20,7 @@ echo "==> LunaAgent installer VERSION=${VERSION} (0.x = beta)"
 cd "$ROOT"
 make build
 REQUIRE_UNIVERSAL=1 "$ROOT/scripts/fetch-wg-tools.sh" "$DIST/luna-wg"
+"$ROOT/scripts/fetch-rustdesk.sh" "$DIST/rustdesk"
 # UI binary once (deployment 10.14; SwiftUI gated at runtime)
 MACOSX_DEPLOYMENT_TARGET=10.14 "$ROOT/scripts/build-app.sh" "$DIST"
 
@@ -40,6 +41,18 @@ assemble_app() {
 
   cp -f "$DIST/luna-wg/bash" "$DIST/luna-wg/wg" "$DIST/luna-wg/wg-quick" "$DIST/luna-wg/wireguard-go" "$wg/"
   chmod 755 "$wg"/*
+
+  # Embedded remote helper (RustDesk) — no separate user install.
+  for arch in aarch64 x86_64; do
+    if [[ -d "$DIST/rustdesk/$arch/RustDesk.app" ]]; then
+      rm -rf "$res/RustDesk-${arch}.app"
+      ditto --norsrc --noextattr "$DIST/rustdesk/$arch/RustDesk.app" "$res/RustDesk-${arch}.app"
+    fi
+  done
+  if [[ ! -d "$res/RustDesk-aarch64.app" && ! -d "$res/RustDesk-x86_64.app" ]]; then
+    echo "error: embedded RustDesk missing — fetch-rustdesk.sh failed" >&2
+    exit 1
+  fi
 
   # Display name beta
   /usr/bin/plutil -replace CFBundleDisplayName -string "LunaAgent (Beta)" "$dest_app/Contents/Info.plist"

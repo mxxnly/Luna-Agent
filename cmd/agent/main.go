@@ -78,5 +78,5 @@ func logCompat() {
 	if out, err := exec.Command("sw_vers", "-productVersion").Output(); err == nil {
 		ver = strings.TrimSpace(string(out))
 	}
-	log.Printf("compat os=macOS_%s ui_full_requires=13.0 daemon_min=10.14 features=enroll,vpn,wg,heartbeat,commands", ver)
+	log.Printf("compat os=macOS_%s ui_full_requires=13.0 daemon_min=10.14 features=enroll,vpn,wg,heartbeat,commands,remote", ver)
 }

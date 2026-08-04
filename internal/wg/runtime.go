@@ -149,6 +149,40 @@ func (m *Manager) tunnelAlive() bool {
 	return len(bytes.TrimSpace(out)) > 0
 }
 
+// HasRecentHandshake reports whether any peer has a non-zero latest handshake.
+// Interface can be "up" with no handshake (bad Endpoint / peer unreachable).
+func (m *Manager) HasRecentHandshake() bool {
+	if m.DryRun {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return m.up
+	}
+	wg := findOnPath("wg")
+	if wg == "" {
+		return false
+	}
+	out, err := exec.Command(wg, "show", m.ifaceName(), "latest-handshakes").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		ts := fields[len(fields)-1]
+		if ts != "0" && ts != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// HelperOK reports whether the root WireGuard helper socket answers ping.
+func HelperOK() bool {
+	return helperAvailable()
+}
+
 func runElevated(shellCmd string) error {
 	if os.Getenv("LUNA_WG_NO_ELEVATE") == "1" {
 		return errors.New("elevation disabled (test)")

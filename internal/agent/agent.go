@@ -179,6 +179,8 @@ func (a *Agent) handleIPC(req ipc.Request) ipc.Response {
 				"last_error_code": lastErr,
 				"has_config":      a.wg.HasConfig(),
 				"mode":            a.wg.Mode(),
+				"handshake_ok":    up && a.wg.HasRecentHandshake(),
+				"helper_ok":       wg.HelperOK(),
 			},
 			"collected_at": time.Now().UTC().Format(time.RFC3339),
 			"enrolled":     st.DeviceID != "",
@@ -232,8 +234,11 @@ func (a *Agent) handleIPC(req ipc.Request) ipc.Response {
 		if a.adminConfigured() && !a.adminUnlocked() {
 			return ipc.Response{OK: false, Error: "admin_locked"}
 		}
-		_ = a.wg.Down()
+		// Clear desired first so watchdog cannot race and re-up during Down().
 		a.setDesired("down")
+		if err := a.wg.Down(); err != nil {
+			return ipc.Response{OK: false, Error: err.Error()}
+		}
 		return ipc.Response{OK: true}
 	case "apply_wg_config":
 		if a.adminConfigured() && !a.adminUnlocked() {
@@ -407,12 +412,6 @@ func (a *Agent) RunLoops(heartbeatEvery, pollEvery time.Duration) {
 // ensureLocalDesiredVPN brings the tunnel up when local desired state is "up"
 // (user or panel asked for VPN) and reconnects if the tunnel dropped.
 func (a *Agent) ensureLocalDesiredVPN(reason string) {
-	a.mu.Lock()
-	desired := a.state.DesiredVPN
-	a.mu.Unlock()
-	if desired != "up" {
-		return
-	}
 	if !a.wg.HasConfig() {
 		return
 	}
@@ -420,8 +419,30 @@ func (a *Agent) ensureLocalDesiredVPN(reason string) {
 	if up {
 		return
 	}
+	a.mu.Lock()
+	desired := a.state.DesiredVPN
+	a.mu.Unlock()
+	if desired != "up" {
+		return
+	}
+	// Re-check immediately before Up to avoid racing a user/panel Disconnect.
+	a.mu.Lock()
+	desired = a.state.DesiredVPN
+	a.mu.Unlock()
+	if desired != "up" {
+		return
+	}
 	if err := a.wg.Up(); err != nil {
 		log.Printf("vpn maintain (%s): %s", reason, secure.Redact(err.Error()))
+		return
+	}
+	// If Disconnect won the race mid-Up, tear down again.
+	a.mu.Lock()
+	desired = a.state.DesiredVPN
+	a.mu.Unlock()
+	if desired != "up" {
+		_ = a.wg.Down()
+		log.Printf("vpn maintain (%s): aborted — desired is %q", reason, desired)
 		return
 	}
 	log.Printf("vpn maintain (%s): tunnel restored", reason)
@@ -561,8 +582,10 @@ func (a *Agent) execCommand(c crypto.Command) (bool, string, string) {
 		a.setDesired("up")
 		return true, "", ""
 	case "vpn_down":
-		_ = a.wg.Down()
 		a.setDesired("down")
+		if err := a.wg.Down(); err != nil {
+			return false, "vpn_down_failed", err.Error()
+		}
 		return true, "", ""
 	case "apply_wg_config":
 		conf, _ := c.Payload["conf_text"].(string)

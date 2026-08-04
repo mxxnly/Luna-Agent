@@ -169,6 +169,7 @@ struct HomeTabView: View {
 
   private var statusColor: Color {
     if !model.snapshot.daemonReachable { return .red }
+    if vpnUp && !model.snapshot.handshakeOK { return .orange }
     if vpnUp { return .green }
     if model.snapshot.enrolled { return .accentColor }
     return .secondary
@@ -176,6 +177,7 @@ struct HomeTabView: View {
 
   private var headline: String {
     if !model.snapshot.daemonReachable { return "Agent Offline" }
+    if vpnUp && !model.snapshot.handshakeOK { return "VPN Up · No Handshake" }
     if vpnUp { return "VPN Connected" }
     if model.snapshot.enrolled { return "VPN Off" }
     return "Ready to Enroll"
@@ -183,7 +185,13 @@ struct HomeTabView: View {
 
   private var subhead: String {
     if !model.snapshot.daemonReachable { return "Start the background agent." }
+    if vpnUp && !model.snapshot.handshakeOK {
+      return "Interface is up but peer unreachable — check WG config / Endpoint"
+    }
     if vpnUp, let ip = model.snapshot.internalIP, !ip.isEmpty { return ip }
+    if !model.snapshot.helperOK && model.snapshot.daemonReachable {
+      return "WireGuard helper offline — Disconnect may ask for Mac password"
+    }
     if model.snapshot.enrolled {
       return model.snapshot.hostname.isEmpty ? "Linked · config ready" : model.snapshot.hostname
     }

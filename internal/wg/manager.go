@@ -37,6 +37,12 @@ func ValidateConf(conf string) error {
 	if !strings.Contains(conf, "PrivateKey") {
 		return fmt.Errorf("%w: missing PrivateKey", ErrInvalidConf)
 	}
+	if !strings.Contains(conf, "Endpoint") {
+		return fmt.Errorf("%w: missing Endpoint", ErrInvalidConf)
+	}
+	if !strings.Contains(conf, "AllowedIPs") {
+		return fmt.Errorf("%w: missing AllowedIPs", ErrInvalidConf)
+	}
 	for _, line := range strings.Split(conf, "\n") {
 		trim := strings.TrimSpace(line)
 		if strings.HasPrefix(trim, "#") || trim == "" {
@@ -147,16 +153,33 @@ func (m *Manager) rollbackLocked(cause error) error {
 	return fmt.Errorf("%w (rolled back): %v", ErrInvalidConf, cause)
 }
 
-// Down stops the tunnel.
+// Down stops the tunnel. Returns an error if the interface is still present afterward.
 func (m *Manager) Down() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if !m.DryRun {
-		_ = m.stopTUN()
+	if m.DryRun {
+		m.up = false
+		m.lastIP = ""
+		_ = os.WriteFile(m.statePath(), []byte("down"), 0o600)
+		return nil
+	}
+	err := m.stopTUN()
+	// Always refresh from OS — stop may have partially succeeded.
+	alive := m.tunnelAlive()
+	if alive {
+		m.up = true
+		if err != nil {
+			return err
+		}
+		return errors.New("tunnel still up after disconnect")
 	}
 	m.up = false
 	m.lastIP = ""
 	_ = os.WriteFile(m.statePath(), []byte("down"), 0o600)
+	if err != nil {
+		// Interface gone despite helper/osascript noise — treat as success.
+		return nil
+	}
 	return nil
 }
 

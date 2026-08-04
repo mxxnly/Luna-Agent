@@ -17,12 +17,12 @@ struct VPNTabView: View {
           .font(.title2)
           .foregroundStyle(vpnUp ? .green : .red)
         VStack(alignment: .leading, spacing: 2) {
-          Text(vpnUp ? "Connected" : "Disconnected")
+          Text(vpnTitle)
             .font(.headline)
           Text(detailLine)
             .font(.caption)
             .foregroundStyle(.secondary)
-            .lineLimit(1)
+            .lineLimit(2)
         }
         Spacer(minLength: 0)
         if model.busy { ProgressView().controlSize(.small) }
@@ -33,6 +33,8 @@ struct VPNTabView: View {
 
       VStack(spacing: 6) {
         row("Config", model.snapshot.hasWGConfig ? "Saved" : "Not set")
+        row("Handshake", vpnUp ? (model.snapshot.handshakeOK ? "OK" : "none") : "—")
+        row("Helper", model.snapshot.helperOK ? "running" : "offline (Mac password)")
         if !model.snapshot.desiredVPN.isEmpty {
           row("Desired", model.snapshot.desiredVPN)
         }
@@ -94,8 +96,18 @@ struct VPNTabView: View {
     .padding(.bottom, 12)
   }
 
+  private var vpnTitle: String {
+    if vpnUp && !model.snapshot.handshakeOK { return "Up · no handshake" }
+    if vpnUp { return "Connected" }
+    return "Disconnected"
+  }
+
   private var detailLine: String {
+    if vpnUp && !model.snapshot.handshakeOK {
+      return "Peer unreachable — check Endpoint / WG config"
+    }
     if vpnUp, let ip = model.snapshot.internalIP, !ip.isEmpty { return ip }
+    if !model.snapshot.helperOK { return "Helper offline — actions may ask Mac password" }
     return model.snapshot.tunnelMode == "dry-run" ? "Simulated tunnel" : "Live WireGuard"
   }
 

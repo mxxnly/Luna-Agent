@@ -34,6 +34,8 @@ struct AgentStatusSnapshot {
   var diskTotal: Int64 = 0
   var hasWGConfig: Bool = false
   var tunnelMode: String = "live"
+  var handshakeOK: Bool = false
+  var helperOK: Bool = false
   var topCPU: [ProcessRow] = []
   var topRAM: [ProcessRow] = []
   var collectedAt: String = ""
@@ -92,6 +94,8 @@ struct AgentStatusSnapshot {
       s.internalIP = vpn["internal_ip"] as? String
       s.hasWGConfig = (vpn["has_config"] as? Bool) ?? false
       s.tunnelMode = (vpn["mode"] as? String) ?? "live"
+      s.handshakeOK = (vpn["handshake_ok"] as? Bool) ?? false
+      s.helperOK = (vpn["helper_ok"] as? Bool) ?? false
     } else {
       s.vpnState = ((data["vpn_up"] as? Bool) == true) ? "up" : "down"
       s.internalIP = data["internal_ip"] as? String

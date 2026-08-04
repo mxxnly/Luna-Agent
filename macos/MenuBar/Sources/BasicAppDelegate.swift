@@ -189,7 +189,11 @@ final class BasicAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
     let state = (vpn["state"] as? String) ?? (data["vpn_up"] as? Bool == true ? "up" : "down")
     let url = (data["control_url"] as? String) ?? ""
     let err = (res["error"] as? String) ?? (data["last_error"] as? String)
+    let conn = data["connection"] as? [String: Any] ?? [:]
+    let daemonVer = (conn["agent_version"] as? String) ?? (data["version"] as? String) ?? ""
+    let ver = AppVersion.resolved(daemon: daemonVer)
     var lines = [
+      "LunaAgent \(ver)",
       MacOSCompat.modeBanner,
       ok ? "Daemon: ok" : "Daemon: \(err ?? "not running")",
       "Enrolled: \(enrolled ? "yes" : "no")",

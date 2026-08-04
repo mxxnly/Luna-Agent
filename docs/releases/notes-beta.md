@@ -2,6 +2,11 @@
 
 Pre-release for the `0.x` line. APIs and packaging may still change before 1.0.0.
 
+## What’s new in $VERSION
+
+- Installed agent version is shown in the menu bar app (header, Home, Device, About) and in tooltips.
+- Control panel surfaces agent version as a dedicated badge and device stat (heartbeat still reports `agent_version`).
+
 ## Packages
 
 | File | macOS |

@@ -19,7 +19,7 @@ struct DeviceTabView: View {
       Section("System") {
         LabeledContent("Model", value: display(model.snapshot.model))
         LabeledContent("OS", value: display(model.snapshot.osVersion))
-        LabeledContent("Agent", value: display(model.snapshot.agentVersion))
+        LabeledContent("Agent version", value: model.snapshot.displayAgentVersion)
       }
 
       Section("macOS compatibility") {

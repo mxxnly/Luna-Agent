@@ -45,6 +45,11 @@ struct AgentStatusSnapshot {
   /// Sensitive local actions need admin unlock when configured.
   var needsAdminUnlock: Bool { adminConfigured && !adminUnlocked }
 
+  /// Version for UI: prefer daemon IPC, else installed .app bundle.
+  var displayAgentVersion: String {
+    AppVersion.resolved(daemon: agentVersion)
+  }
+
   static func from(response: [String: Any]) -> AgentStatusSnapshot {
     var s = AgentStatusSnapshot()
     if let err = response["error"] as? String {
@@ -69,8 +74,10 @@ struct AgentStatusSnapshot {
       s.enrolled = (data["enrolled"] as? Bool) ?? false
       s.deviceID = (data["device_id"] as? String) ?? ""
       s.controlURL = (data["control_url"] as? String) ?? ""
-      s.agentVersion = (data["version"] as? String) ?? ""
       s.lastError = data["last_error"] as? String
+    }
+    if s.agentVersion.isEmpty, let v = data["version"] as? String, !v.isEmpty {
+      s.agentVersion = v
     }
     if let device = data["device"] as? [String: Any] {
       s.hostname = (device["hostname"] as? String) ?? ""

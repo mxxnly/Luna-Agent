@@ -15,8 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
   private var onboardingWindow: NSWindow?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
-    NSLog("LunaAgent full UI mode os=%@ — complete features (macOS 13+)", MacOSCompat.versionString)
+    NSLog("LunaAgent full UI mode os=%@ version=%@ — complete features (macOS 13+)", MacOSCompat.versionString, AppVersion.bundleShort)
     installMainMenu()
+    configureAboutPanel()
     VPNNotifier.requestPermissionIfNeeded()
     viewModel.refreshPrefs()
     // Always register background services (SMAppService) — no user toggle.
@@ -91,14 +92,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     onboardingWindow = win
   }
 
-  /// Accessory apps have no Edit menu by default — Cmd+C/V then do nothing.
+  private func configureAboutPanel() {
+    NSApplication.shared.applicationIconImage = BrandAssets.appIconImage()
+  }
+
+  @objc private func showAbout(_ sender: Any?) {
+    let opts: [NSApplication.AboutPanelOptionKey: Any] = [
+      .applicationName: "LunaAgent",
+      .applicationVersion: AppVersion.bundleShort,
+      .version: AppVersion.bundleShort,
+      .credits: NSAttributedString(
+        string: "Organization-managed WireGuard agent",
+        attributes: [
+          .font: NSFont.systemFont(ofSize: 11),
+          .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+      ),
+    ]
+    NSApp.orderFrontStandardAboutPanel(options: opts)
+  }
+
   private func installMainMenu() {
     let main = NSMenu()
 
     let appMenuItem = NSMenuItem()
     main.addItem(appMenuItem)
     let appMenu = NSMenu(title: "LunaAgent")
-    appMenu.addItem(withTitle: "About LunaAgent", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+    appMenu.addItem(withTitle: "About LunaAgent", action: #selector(showAbout(_:)), keyEquivalent: "")
     appMenu.addItem(NSMenuItem.separator())
     appMenu.addItem(withTitle: "Hide LunaAgent", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
     appMenu.addItem(withTitle: "Quit LunaAgent", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -344,7 +364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       lastVPNUp = vpnUp
     }
 
-    var parts: [String] = ["LunaAgent"]
+    var parts: [String] = ["LunaAgent \(snap.displayAgentVersion)"]
     if !snap.daemonReachable {
       parts.append("offline")
     } else {

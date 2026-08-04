@@ -134,6 +134,9 @@ struct StatusWindowView: View {
           .font(.caption)
           .foregroundStyle(.secondary)
           .lineLimit(1)
+        Text("v\(model.snapshot.displayAgentVersion)")
+          .font(.caption2.monospacedDigit())
+          .foregroundStyle(.tertiary)
       }
 
       Spacer(minLength: 0)

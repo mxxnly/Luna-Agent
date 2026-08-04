@@ -106,6 +106,11 @@ struct HomeTabView: View {
 
       Spacer(minLength: 0)
 
+      Text("v\(model.snapshot.displayAgentVersion)")
+        .font(.caption2.monospacedDigit())
+        .foregroundStyle(.tertiary)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+
       VStack(spacing: 6) {
         if !model.snapshot.daemonReachable {
           Button {

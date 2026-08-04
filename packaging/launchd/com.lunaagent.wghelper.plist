@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.lunaagent.wghelper</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/libexec/luna-wghelper</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/usr/local/libexec/luna-wg:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+	</dict>
+	<key>StandardErrorPath</key>
+	<string>/var/log/luna-wghelper.err.log</string>
+	<key>StandardOutPath</key>
+	<string>/var/log/luna-wghelper.out.log</string>
+</dict>
+</plist>

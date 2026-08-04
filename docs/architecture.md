@@ -4,52 +4,58 @@
 
 | Component | Role |
 |-----------|------|
-| **Daemon** (`cmd/agent`) | Enroll, heartbeat, command poll, WireGuard apply/up/down, metrics |
-| **Menu bar** (`macos/MenuBar`) | Status, local connect/disconnect, enroll UI, copy Device ID |
-| **mockcontrol** (`cmd/mockcontrol`) | Local Control API for CI/e2e |
+| **Menu bar** (`macos/MenuBar`) | Status, enroll, connect/disconnect, WG conf; SwiftUI on 13+, AppKit basic on 10.14–12 |
+| **Daemon** (`cmd/agent` → `lunaagentd`) | Enroll, heartbeat, command poll, WireGuard apply/up/down, metrics |
+| **Helper** (`cmd/wghelper` → `luna-wghelper`) | Root: `wg-quick` / wireguard-go via `/var/run/luna-wg.sock` |
+| **Bundled tools** (`Contents/Resources/luna-wg`) | bash 4+, wg, wg-quick, wireguard-go |
+| **mockcontrol** | Local Control API for CI/e2e |
 | **Control Server** | External HTTPS API (Control API v1); reference: vpn-control-panel |
 
 ```
-┌──────────────────────────────┐
-│  LunaAgent.app / menu bar    │
-│         ↕ Unix socket JSON   │
-│  lunaagentd (daemon)         │
-│    ├─ WireGuard (wireguard-go / dry-run)
-│    └─ HTTPS Control API      │
-└──────────────┬───────────────┘
-               │ (internet, VPN independent)
-               ▼
-        Control Server URL
+┌─────────────────────────────────────────────┐
+│  /Applications/LunaAgent.app                │
+│  MacOS/LunaAgent  ↔  IPC sock  ↔  lunaagentd │
+│                              ↕               │
+│                         luna-wghelper (root) │
+│                              ↕               │
+│                    Resources/luna-wg tools   │
+└──────────────────────┬──────────────────────┘
+                       │ HTTPS (VPN-independent)
+                       ▼
+                 Control Server URL
 ```
+
+## Lifecycle by channel
+
+| | macOS 13+ pkg | Legacy 10.14–12 pkg |
+|--|---------------|---------------------|
+| Autostart UI | `SMAppService.mainApp` | LaunchAgent → app binary |
+| User daemon | `SMAppService.agent` + embedded plist | `/Library/LaunchAgents` → `Contents/MacOS/lunaagentd` |
+| Root helper | `SMAppService.daemon` + embedded plist | `/Library/LaunchDaemons` + postinstall |
+| Min OS in Info.plist | 13.0 | 10.14 |
+
+Tool discovery prefers paths relative to the executable inside the app bundle (`internal/bundlepath`).
 
 ## Tech stack
 
 See [adr/0001-tech-stack.md](adr/0001-tech-stack.md).
 
-## Build and test matrix
+## Build and release
 
-See [adr/0002-build-and-test.md](adr/0002-build-and-test.md).
+See [adr/0002-build-and-test.md](adr/0002-build-and-test.md), [packaging.md](packaging.md), [releasing.md](releasing.md).
 
-| Gate | When | Command |
-|------|------|---------|
-| Unit + lint + universal build | Every PR | `make ci` |
-| Integration (mockcontrol) | Every PR | part of `make ci` |
-| E2E script | main / release | `make e2e` |
-| Notarized pkg + smoke | tag `v*` | `make package` + release workflow |
+| Gate | Command |
+|------|---------|
+| Unit + lint + Go universal build | `make ci` |
+| E2E (dry-run WG) | `make e2e` |
+| Dual pkgs to Desktop | `make installer` |
+| GitHub Release upload | `make publish-release` |
 
 ## Design constraints
 
-1. **Control plane ≠ VPN path** — enroll, heartbeat, and commands must work while the tunnel is down.
-2. **Configurable server** — IT sets the Control Server base URL at enroll time.
-3. **Panel owns WireGuard keys** — agent applies a full `.conf`; on apply failure it rolls back.
-4. **Observe-only metrics** — CPU, RAM, disk, top processes; no process kill in MVP.
-5. **No secrets in logs** — PrivateKey, PSK, device_token, enroll codes are redacted.
-
-## Milestones
-
-| ID | Scope |
-|----|--------|
-| M1 | Enroll, heartbeat (device), menu bar, IPC, launchd, CI green |
-| M2 | WireGuard conf apply/up/down, backup/rollback, dry-run for CI |
-| M3 | Signed remote commands, reference Django API, e2e |
-| M4 | Metrics snapshot, packaging/sign/notarize scripts, release-smoke |
+1. **Control plane ≠ VPN path** — enroll, heartbeat, and commands work while the tunnel is down.
+2. **Configurable server** — Control Server base URL at enroll time.
+3. **Panel owns WireGuard material** — agent applies full `.conf`; rollback on failure.
+4. **Observe-only metrics** — no remote process kill in product scope.
+5. **No secrets in logs** — PrivateKey, PSK, device_token, enroll codes redacted.
+6. **No Network Extension** in current product — userspace wireguard-go + root helper.

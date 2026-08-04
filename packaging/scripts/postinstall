@@ -1,0 +1,98 @@
+#!/bin/bash
+# Runs as root during .pkg install. Loads launchd jobs and opens the menu bar app.
+set -euo pipefail
+
+APP="/Applications/LunaAgent.app"
+BIN="/usr/local/bin/lunaagentd"
+HELPER="/usr/local/libexec/luna-wghelper"
+WG_DIR="/usr/local/libexec/luna-wg"
+APP_WG="${APP}/Contents/Resources/luna-wg"
+
+mkdir -p "${WG_DIR}"
+
+# Critical: copy WG tools from .app Resources → /usr/local/libexec/luna-wg.
+# pkgbuild sometimes installs the .app reliably but leaves /usr/local empty.
+if [[ -d "${APP_WG}" ]]; then
+  cp -f "${APP_WG}/bash" "${APP_WG}/wg-quick" "${APP_WG}/wireguard-go" "${WG_DIR}/" 2>/dev/null || true
+  if [[ -f "${APP_WG}/wg" ]]; then
+    cp -f "${APP_WG}/wg" "${WG_DIR}/wg" 2>/dev/null || true
+  fi
+  for f in start-daemon.sh start-menubar.sh; do
+    if [[ -f "${APP_WG}/${f}" ]]; then
+      cp -f "${APP_WG}/${f}" "${WG_DIR}/${f}" 2>/dev/null || true
+    fi
+  done
+fi
+
+chmod 755 "${BIN}" 2>/dev/null || true
+chmod 755 "${HELPER}" 2>/dev/null || true
+chmod 755 "${WG_DIR}" 2>/dev/null || true
+chmod 755 "${WG_DIR}"/* 2>/dev/null || true
+# Starter scripts for LaunchAgents (must be executable).
+chmod 755 "${WG_DIR}/start-daemon.sh" "${WG_DIR}/start-menubar.sh" 2>/dev/null || true
+xattr -cr "${WG_DIR}" "${HELPER}" "${BIN}" "${APP}" 2>/dev/null || true
+
+if [[ ! -x "${WG_DIR}/bash" ]]; then
+  echo "error: ${WG_DIR}/bash missing after install" >&2
+  echo "app resources:" >&2
+  ls -la "${APP_WG}" >&2 || true
+  ls -la "${WG_DIR}" >&2 || true
+  exit 1
+fi
+if [[ ! -x "${WG_DIR}/wg-quick" || ! -x "${WG_DIR}/wireguard-go" || ! -x "${WG_DIR}/wg" ]]; then
+  echo "error: WireGuard tools missing in ${WG_DIR} (need bash,wg-quick,wireguard-go,wg)" >&2
+  ls -la "${WG_DIR}" >&2 || true
+  exit 1
+fi
+
+# Smoke-check bash 4+
+BASH_MAJOR="$("${WG_DIR}/bash" -c 'echo ${BASH_VERSINFO[0]}' 2>/dev/null || echo 0)"
+if [[ "${BASH_MAJOR}" -lt 4 ]]; then
+  echo "error: bundled bash major=${BASH_MAJOR} (need 4+)" >&2
+  exit 1
+fi
+echo "luna-wg ok: bash=${BASH_MAJOR} at ${WG_DIR}/bash"
+
+CONSOLE_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+UID_NUM=""
+if [[ -n "${CONSOLE_USER}" && "${CONSOLE_USER}" != "root" ]]; then
+  UID_NUM="$(id -u "${CONSOLE_USER}" 2>/dev/null || true)"
+fi
+
+bootstrap_gui() {
+  local plist="$1"
+  local label="$2"
+  if [[ -n "${UID_NUM}" ]]; then
+    launchctl bootout "gui/${UID_NUM}/${label}" 2>/dev/null || true
+    launchctl enable "gui/${UID_NUM}/${label}" 2>/dev/null || true
+    launchctl bootstrap "gui/${UID_NUM}" "${plist}" 2>/dev/null || \
+      launchctl load -w "${plist}" 2>/dev/null || true
+    launchctl kickstart -k "gui/${UID_NUM}/${label}" 2>/dev/null || true
+  else
+    launchctl load -w "${plist}" 2>/dev/null || true
+  fi
+}
+
+PLIST_AGENT="/Library/LaunchAgents/com.lunaagent.daemon.plist"
+bootstrap_gui "${PLIST_AGENT}" "com.lunaagent.daemon"
+
+PLIST_MENU="/Library/LaunchAgents/com.lunaagent.menubar.plist"
+if [[ -f "${PLIST_MENU}" ]]; then
+  bootstrap_gui "${PLIST_MENU}" "com.lunaagent.menubar"
+fi
+
+PLIST_WG="/Library/LaunchDaemons/com.lunaagent.wghelper.plist"
+LABEL_WG="com.lunaagent.wghelper"
+if [[ -f "${PLIST_WG}" ]]; then
+  launchctl bootout "system/${LABEL_WG}" 2>/dev/null || true
+  launchctl enable "system/${LABEL_WG}" 2>/dev/null || true
+  launchctl bootstrap system "${PLIST_WG}" 2>/dev/null || launchctl load -w "${PLIST_WG}" 2>/dev/null || true
+  launchctl kickstart -k "system/${LABEL_WG}" 2>/dev/null || true
+fi
+
+if [[ -d "${APP}" && -n "${CONSOLE_USER}" && "${CONSOLE_USER}" != "root" ]]; then
+  sudo -u "${CONSOLE_USER}" defaults delete com.lunaagent.app luna.onboarding.permissions.done 2>/dev/null || true
+  sudo -u "${CONSOLE_USER}" open "${APP}" 2>/dev/null || true
+fi
+
+exit 0

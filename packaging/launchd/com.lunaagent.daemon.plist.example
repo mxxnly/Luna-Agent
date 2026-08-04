@@ -6,11 +6,22 @@
 	<string>com.lunaagent.daemon</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/usr/local/bin/lunaagentd</string>
+		<string>/usr/local/libexec/luna-wg/start-daemon.sh</string>
 	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/usr/local/libexec/luna-wg:/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/sbin:/usr/bin:/bin</string>
+	</dict>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
 	<true/>
+	<key>ThrottleInterval</key>
+	<integer>5</integer>
+	<key>LimitLoadToSessionType</key>
+	<string>Aqua</string>
+	<key>ProcessType</key>
+	<string>Background</string>
 </dict>
 </plist>

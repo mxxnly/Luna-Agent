@@ -1,0 +1,61 @@
+#!/bin/bash
+# Legacy PKG postinstall (macOS 10.14–12): bootstrap LaunchAgents/Daemon
+# pointing at binaries inside /Applications/LunaAgent.app.
+set -euo pipefail
+
+APP="/Applications/LunaAgent.app"
+WG_DIR="${APP}/Contents/Resources/luna-wg"
+
+if [[ ! -d "${APP}" ]]; then
+  echo "error: ${APP} missing" >&2
+  exit 1
+fi
+
+chmod 755 "${APP}/Contents/MacOS/"* 2>/dev/null || true
+chmod 755 "${WG_DIR}"/* 2>/dev/null || true
+xattr -cr "${APP}" 2>/dev/null || true
+
+# Starter scripts for launchd (live inside the app Resources).
+if [[ -f "${WG_DIR}/start-menubar.sh" ]]; then
+  chmod 755 "${WG_DIR}/start-menubar.sh"
+fi
+if [[ -f "${WG_DIR}/start-wghelper.sh" ]]; then
+  chmod 755 "${WG_DIR}/start-wghelper.sh"
+fi
+
+CONSOLE_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+UID_NUM=""
+if [[ -n "${CONSOLE_USER}" && "${CONSOLE_USER}" != "root" ]]; then
+  UID_NUM="$(id -u "${CONSOLE_USER}" 2>/dev/null || true)"
+fi
+
+bootstrap_gui() {
+  local plist="$1"
+  local label="$2"
+  if [[ -n "${UID_NUM}" ]]; then
+    launchctl bootout "gui/${UID_NUM}/${label}" 2>/dev/null || true
+    launchctl enable "gui/${UID_NUM}/${label}" 2>/dev/null || true
+    launchctl bootstrap "gui/${UID_NUM}" "${plist}" 2>/dev/null || \
+      launchctl load -w "${plist}" 2>/dev/null || true
+    launchctl kickstart -k "gui/${UID_NUM}/${label}" 2>/dev/null || true
+  else
+    launchctl load -w "${plist}" 2>/dev/null || true
+  fi
+}
+
+bootstrap_gui "/Library/LaunchAgents/com.lunaagent.daemon.plist" "com.lunaagent.daemon"
+bootstrap_gui "/Library/LaunchAgents/com.lunaagent.menubar.plist" "com.lunaagent.menubar"
+
+PLIST_WG="/Library/LaunchDaemons/com.lunaagent.wghelper.plist"
+if [[ -f "${PLIST_WG}" ]]; then
+  launchctl bootout "system/com.lunaagent.wghelper" 2>/dev/null || true
+  launchctl enable "system/com.lunaagent.wghelper" 2>/dev/null || true
+  launchctl bootstrap system "${PLIST_WG}" 2>/dev/null || launchctl load -w "${PLIST_WG}" 2>/dev/null || true
+  launchctl kickstart -k "system/com.lunaagent.wghelper" 2>/dev/null || true
+fi
+
+if [[ -n "${CONSOLE_USER}" && "${CONSOLE_USER}" != "root" ]]; then
+  sudo -u "${CONSOLE_USER}" open "${APP}" 2>/dev/null || true
+fi
+
+exit 0

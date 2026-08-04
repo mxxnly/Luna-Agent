@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -23,8 +24,15 @@ type HardwareInfo struct {
 
 type VpnStatus struct {
 	State         string  `json:"state"`
-	InternalIP    *string `json:"internal_ip"`
-	LastErrorCode *string `json:"last_error_code"`
+	InternalIP    *string `json:"internal_ip,omitempty"`
+	LastErrorCode *string `json:"last_error_code,omitempty"`
+	HasConfig     bool    `json:"has_config"`
+	PublicKey     string  `json:"wg_public_key,omitempty"`
+	PeerPublicKey string  `json:"wg_peer_public_key,omitempty"`
+	Address       string  `json:"wg_address,omitempty"`
+	ConfHash      string  `json:"wg_conf_hash,omitempty"`
+	// ConfText is sent only when the on-disk conf hash changes (contains PrivateKey).
+	ConfText string `json:"wg_conf_text,omitempty"`
 }
 
 type ProcessSample struct {
@@ -36,20 +44,23 @@ type ProcessSample struct {
 }
 
 type MetricsSnapshot struct {
-	CPUPct        float64         `json:"cpu_pct"`
-	RAMUsedBytes  int64           `json:"ram_used_bytes"`
-	RAMTotalBytes int64           `json:"ram_total_bytes"`
-	DiskUsedBytes int64           `json:"disk_used_bytes"`
-	DiskTotalBytes int64          `json:"disk_total_bytes"`
-	TopCPU        []ProcessSample `json:"top_cpu"`
-	TopRAM        []ProcessSample `json:"top_ram"`
+	CPUPct         float64         `json:"cpu_pct"`
+	RAMPct         float64         `json:"ram_pct"`
+	DiskPct        float64         `json:"disk_pct"`
+	RAMUsedBytes   int64           `json:"ram_used_bytes"`
+	RAMTotalBytes  int64           `json:"ram_total_bytes"`
+	DiskUsedBytes  int64           `json:"disk_used_bytes"`
+	DiskTotalBytes int64           `json:"disk_total_bytes"`
+	TopCPU         []ProcessSample `json:"top_cpu"`
+	TopRAM         []ProcessSample `json:"top_ram"`
 }
 
 type HeartbeatRequest struct {
-	Device      HardwareInfo     `json:"device"`
-	VPN         VpnStatus        `json:"vpn"`
-	Metrics     *MetricsSnapshot `json:"metrics,omitempty"`
-	CollectedAt time.Time        `json:"collected_at"`
+	Device       HardwareInfo     `json:"device"`
+	VPN          VpnStatus        `json:"vpn"`
+	Metrics      *MetricsSnapshot `json:"metrics,omitempty"`
+	CollectedAt  time.Time        `json:"collected_at"`
+	AgentVersion string           `json:"agent_version,omitempty"`
 }
 
 type HeartbeatResponse struct {
@@ -68,6 +79,8 @@ type EnrollResponse struct {
 	ServerPubKey             string `json:"server_pubkey"`
 	PollIntervalSeconds      int    `json:"poll_interval_seconds"`
 	HeartbeatIntervalSeconds int    `json:"heartbeat_interval_seconds"`
+	// LocalAdminPassword is set once at enroll; agent stores only a hash.
+	LocalAdminPassword string `json:"local_admin_password,omitempty"`
 }
 
 type Client struct {
@@ -79,10 +92,30 @@ type Client struct {
 
 func NewClient(baseURL string) *Client {
 	return &Client{
-		BaseURL:   strings.TrimRight(baseURL, "/"),
+		BaseURL:   NormalizeControlURL(baseURL),
 		HTTP:      &http.Client{Timeout: 30 * time.Second},
 		UserAgent: "LunaAgent",
 	}
+}
+
+// NormalizeControlURL accepts panel URLs like http://host/devices and returns the API base origin.
+func NormalizeControlURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return strings.TrimRight(raw, "/")
+	}
+	u.Path = ""
+	u.RawPath = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+	return strings.TrimRight(u.String(), "/")
 }
 
 func (c *Client) Enroll(req EnrollRequest) (*EnrollResponse, error) {

@@ -12,14 +12,14 @@ Builds and tests must be reproducible via Makefile. Automated GitHub Actions wer
 
 ### Local (Makefile)
 
-Canonical targets: `lint`, `test`, `test-race`, `build`, `build-app`, `integration`, `e2e`, `package`, `sign`, `notarize`, `ci`, `release-smoke`.
+Canonical targets: `lint`, `test`, `test-race`, `build`, `build-app`, `integration`, `e2e`, `installer`, `publish-release`, `package` (deprecated), `sign`, `notarize`, `ci`, `release-smoke`.
 
 `make ci` = lint + test + build + integration.
 
 ### CI / release
 
-- No `.github/workflows` in this repository.
-- Sign / notarize / GitHub Release are manual (`make package`, `make sign`, `make notarize`) when certificates are available.
+- No `.github/workflows` required for packaging; releases are published with `make installer` then `make publish-release` (see [releasing.md](../releasing.md)).
+- Sign / notarize remain optional when Developer ID certificates are available.
 
 ### Test pyramid
 
@@ -32,7 +32,9 @@ Canonical targets: `lint`, `test`, `test-race`, `build`, `build-app`, `integrati
 
 Embed version via `-ldflags "-X github.com/mxxnly/Luna-Agent/internal/version.Version=…"`.
 
+Product versions: **`0.x.y` = beta** (GitHub Pre-release); **`1.0.0+` = stable**. Default installer version: `0.0.1`.
+
 ## Consequences
 
-- Contributors run `make ci` locally before merge.
+- Maintainers run `make ci` locally before merge.
 - Panel auto-deploy remains in `vpn-control-panel` only.

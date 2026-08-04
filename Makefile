@@ -1,14 +1,16 @@
 # LunaAgent Makefile — canonical build & test entrypoints
 
 MODULE := github.com/mxxnly/Luna-Agent
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION ?= 0.0.1
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/internal/version.Commit=$(COMMIT)
 
 DIST := dist
 BIN  := $(DIST)/lunaagentd
+MACOSX_DEPLOYMENT_TARGET ?= 10.14
+export MACOSX_DEPLOYMENT_TARGET
 
-.PHONY: all ci lint test test-race build build-app integration e2e package sign notarize release-smoke clean mockcontrol
+.PHONY: all ci lint test test-race build build-app integration e2e package sign notarize release-smoke clean mockcontrol installer publish-release
 
 all: ci
 
@@ -24,10 +26,13 @@ test-race:
 	LUNA_TEST_MODE=1 LUNA_WG_DRY_RUN=1 go test -race ./... -count=1
 
 build: $(DIST)
-	GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o $(DIST)/lunaagentd-arm64 ./cmd/agent
-	GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(DIST)/lunaagentd-amd64 ./cmd/agent
+	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(DIST)/lunaagentd-arm64 ./cmd/agent
+	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(DIST)/lunaagentd-amd64 ./cmd/agent
 	lipo -create -output $(BIN) $(DIST)/lunaagentd-arm64 $(DIST)/lunaagentd-amd64
-	@echo "built $(BIN) ($(VERSION))"
+	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(DIST)/luna-wghelper-arm64 ./cmd/wghelper
+	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(DIST)/luna-wghelper-amd64 ./cmd/wghelper
+	lipo -create -output $(DIST)/luna-wghelper $(DIST)/luna-wghelper-arm64 $(DIST)/luna-wghelper-amd64
+	@echo "built $(BIN) + luna-wghelper ($(VERSION)) macosmin=$(MACOSX_DEPLOYMENT_TARGET)"
 
 build-daemon: build
 
@@ -46,6 +51,12 @@ e2e: build mockcontrol
 
 package: build build-app
 	./scripts/package.sh $(DIST)
+
+installer:
+	VERSION="$(VERSION)" ./scripts/build_installer.sh
+
+publish-release:
+	./scripts/publish-github-release.sh "$(VERSION)"
 
 sign:
 	./scripts/sign.sh $(DIST)

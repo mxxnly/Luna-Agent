@@ -1,0 +1,26 @@
+LunaAgent Legacy (Beta) — macOS 10.14–12
+=======================================
+
+Version: __VERSION__
+
+Reduced features
+----------------
+- Basic AppKit UI: enroll, Connect/Disconnect, status, WireGuard conf
+- No full SwiftUI metrics / SMAppService
+- Autostart via /Library LaunchAgents + LaunchDaemon pointing into the .app
+
+Install
+-------
+Admin password once (postinstall registers helper). Prefer 13plus pkg on Ventura+.
+
+Uninstall
+---------
+1. Quit LunaAgent and move /Applications/LunaAgent.app to Trash.
+2. Residual plists (optional cleanup):
+
+  sudo launchctl bootout system/com.lunaagent.wghelper 2>/dev/null
+  sudo rm -f /Library/LaunchDaemons/com.lunaagent.wghelper.plist
+  sudo rm -f /Library/LaunchAgents/com.lunaagent.daemon.plist
+  sudo rm -f /Library/LaunchAgents/com.lunaagent.menubar.plist
+
+Docs: https://github.com/mxxnly/Luna-Agent/blob/main/docs/install-legacy.md

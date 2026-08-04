@@ -10,11 +10,12 @@ import (
 
 // State is persisted agent enrollment state (token only in test mode file store).
 type State struct {
-	ControlURL   string `json:"control_url"`
-	DeviceID     string `json:"device_id"`
-	DeviceToken  string `json:"device_token,omitempty"`
-	ServerPubKey string `json:"server_pubkey"`
-	DesiredVPN   string `json:"desired_vpn_state"`
+	ControlURL      string `json:"control_url"`
+	DeviceID        string `json:"device_id"`
+	DeviceToken     string `json:"device_token,omitempty"`
+	ServerPubKey    string `json:"server_pubkey"`
+	DesiredVPN      string `json:"desired_vpn_state"`
+	AdminPassHash   string `json:"admin_pass_hash,omitempty"`
 }
 
 type Store interface {

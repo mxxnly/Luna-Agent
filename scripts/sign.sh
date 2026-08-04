@@ -8,6 +8,15 @@ if [[ -z "$ID" ]]; then
   exit 0
 fi
 codesign --force --options runtime --sign "$ID" "$DIST/lunaagentd"
+if [[ -f "$DIST/luna-wghelper" ]]; then
+  codesign --force --options runtime --sign "$ID" "$DIST/luna-wghelper"
+fi
+if [[ -d "$DIST/luna-wg" ]]; then
+  for bin in "$DIST/luna-wg"/*; do
+    [[ -f "$bin" && -x "$bin" ]] || continue
+    codesign --force --options runtime --sign "$ID" "$bin" || true
+  done
+fi
 if [[ -d "$DIST/LunaAgent.app" ]]; then
   codesign --force --deep --options runtime --sign "$ID" "$DIST/LunaAgent.app"
 fi

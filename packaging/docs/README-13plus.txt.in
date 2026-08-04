@@ -1,0 +1,25 @@
+LunaAgent (Beta) — macOS 13+ channel
+====================================
+
+Version: __VERSION__
+
+What you get
+------------
+- Self-contained /Applications/LunaAgent.app (daemon + WireGuard helper + tools inside)
+- SMAppService: login item, user agent (lunaagentd), root helper (luna-wghelper)
+- Full SwiftUI UI (metrics, tabs)
+- No /usr/local scatter
+
+First launch
+------------
+Complete "Finish setup (Beta)": enable background services. If macOS asks, approve
+under System Settings → General → Login Items & Extensions.
+
+Uninstall
+---------
+Move LunaAgent to Trash. Registered SMAppService jobs go with the app.
+Enrollment data may remain in ~/Library/Application Support/LunaAgent.
+
+Docs: https://github.com/mxxnly/Luna-Agent/blob/main/docs/install-13plus.md
+
+Do not use this package on macOS 10.14–12 — use LunaAgent_Legacy_10.14.pkg instead.

@@ -2,11 +2,12 @@
 
 ## Supported versions
 
-Security fixes target the latest released agent build on the default branch.
+- **Beta** (`0.x.y`): best-effort fixes on the latest Pre-release.
+- **Stable** (`1.x.y` and newer): security fixes target the latest stable release on `main` / Latest GitHub Release.
 
 ## Reporting a vulnerability
 
-Please report security issues **privately** (GitHub Security Advisory on this repository, or a private channel to the maintainers).
+Report security issues **privately** (GitHub Security Advisory on [mxxnly/Luna-Agent](https://github.com/mxxnly/Luna-Agent), or a private channel to the maintainer **mxxnly**).
 
 Include:
 
@@ -26,3 +27,4 @@ Include:
 - Control plane traffic is HTTPS-only with certificate validation
 - Remote commands are signed and time-limited; replay is rejected
 - WireGuard config files on disk use restrictive permissions (`0600`)
+- Root helper authenticates peers by Unix socket credentials (UID)

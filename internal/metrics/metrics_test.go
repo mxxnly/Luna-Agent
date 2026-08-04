@@ -25,3 +25,35 @@ func index(s, sub string) int {
 	}
 	return -1
 }
+
+func TestHostDiskPrefersDataVolume(t *testing.T) {
+	used, total := hostDisk("/")
+	if total <= 0 {
+		t.Fatalf("expected disk total > 0, got used=%d total=%d", used, total)
+	}
+	if used <= 0 {
+		t.Fatalf("expected disk used > 0, got used=%d total=%d", used, total)
+	}
+	// On this APFS Mac, Data volume used should be far above the sealed system snapshot (~12GB).
+	if used < 50<<30 && total > 100<<30 {
+		// soft check — only fail if clearly still reading the tiny system used figure
+		sysUsed, sysTotal := hostDiskDF("/")
+		if used == sysUsed && sysUsed < 20<<30 && total == sysTotal {
+			t.Fatalf("still reading sealed system volume: used=%d total=%d", used, total)
+		}
+	}
+}
+
+func TestHostRAMHasTotal(t *testing.T) {
+	used, total := hostRAM()
+	if total <= 0 {
+		t.Fatalf("ram total missing: used=%d total=%d", used, total)
+	}
+	if used <= 0 {
+		t.Fatalf("ram used missing: used=%d total=%d", used, total)
+	}
+	pct := pct(used, total)
+	if pct <= 0 || pct > 100 {
+		t.Fatalf("unexpected ram pct=%v used=%d total=%d", pct, used, total)
+	}
+}

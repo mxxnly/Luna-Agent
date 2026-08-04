@@ -3,14 +3,17 @@ import PackageDescription
 
 let package = Package(
   name: "LunaAgentMenu",
-  platforms: [.macOS(.v13)],
+  platforms: [.macOS(.v10_14)],
   products: [
     .executable(name: "LunaAgentMenu", targets: ["LunaAgentMenu"])
   ],
   targets: [
     .executableTarget(
       name: "LunaAgentMenu",
-      path: "Sources"
+      path: "Sources",
+      swiftSettings: [
+        .unsafeFlags(["-parse-as-library"])
+      ]
     )
   ]
 )

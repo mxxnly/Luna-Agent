@@ -340,11 +340,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
   private func applyStatusItem(snap: AgentStatusSnapshot) {
     guard let button = statusItem?.button else { return }
-    let vpnUp = snap.daemonReachable && snap.vpnState == "up"
+    let vpnOn = snap.daemonReachable && snap.vpnWorking
     let state: BrandAssets.MenuBarState
     if !snap.daemonReachable {
       state = .offline
-    } else if vpnUp {
+    } else if vpnOn {
       state = .vpnOn
     } else {
       state = .idle
@@ -357,11 +357,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     button.contentTintColor = nil
     button.appearsDisabled = (state == .offline)
 
-    if statusItemReady, let prev = lastVPNUp, prev != vpnUp {
-      VPNNotifier.unexpectedChange(nowUp: vpnUp, ip: snap.internalIP)
+    if statusItemReady, let prev = lastVPNUp, prev != vpnOn {
+      VPNNotifier.unexpectedChange(nowUp: vpnOn, ip: snap.internalIP)
     }
     if snap.daemonReachable {
-      lastVPNUp = vpnUp
+      lastVPNUp = vpnOn
     }
 
     var parts: [String] = ["LunaAgent \(snap.displayAgentVersion)"]
@@ -369,8 +369,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       parts.append("offline")
     } else {
       parts.append(snap.enrolled ? "enrolled" : "not enrolled")
-      parts.append(vpnUp ? "VPN on" : "VPN off")
-      if vpnUp, let ip = snap.internalIP, !ip.isEmpty {
+      parts.append(vpnOn ? "VPN on" : "VPN off")
+      if vpnOn, let ip = snap.internalIP, !ip.isEmpty {
         parts.append(ip)
       }
     }

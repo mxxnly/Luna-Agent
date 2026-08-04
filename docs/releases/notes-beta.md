@@ -8,6 +8,7 @@ Pre-release for the `0.x` line. APIs and packaging may still change before 1.0.0
 - Control panel surfaces agent version as a dedicated badge and device stat (heartbeat still reports `agent_version`).
 - Remote desktop: apply permanent password via macOS `--server` flow so panel session password is accepted.
 - VPN: Disconnect clears desired state before Down and fails if the tunnel stays up; UI shows handshake/helper status.
+- Home shows only whether VPN actually works; interface/handshake/helper details stay on the VPN tab (via root helper status).
 
 ## Packages
 

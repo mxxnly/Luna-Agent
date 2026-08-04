@@ -7,9 +7,15 @@ struct HomeTabView: View {
   var goEnroll: () -> Void
   var openWGConfig: () -> Void
 
-  private var vpnUp: Bool {
+  private var vpnWorking: Bool {
     if let pending = model.pendingVPN { return pending }
-    return model.snapshot.vpnState == "up"
+    return model.snapshot.vpnWorking
+  }
+
+  /// Show Disconnect when the interface exists even if handshake is still pending.
+  private var showDisconnect: Bool {
+    if let pending = model.pendingVPN { return !pending }
+    return model.snapshot.vpnInterfaceUp || model.snapshot.vpnWorking
   }
 
   var body: some View {
@@ -20,7 +26,7 @@ struct HomeTabView: View {
           PulsingStatusIcon(
             systemName: statusSymbol,
             color: statusColor,
-            active: model.snapshot.daemonReachable && (vpnUp || model.snapshot.enrolled)
+            active: model.snapshot.daemonReachable && (vpnWorking || model.snapshot.enrolled)
           )
           .scaleEffect(0.85)
 
@@ -38,7 +44,7 @@ struct HomeTabView: View {
           }
         }
 
-        if vpnUp {
+        if showDisconnect {
           Button(role: .destructive) {
             if model.isAdminLocked {
               model.promptAdminUnlock("Admin password required to disconnect")
@@ -162,36 +168,28 @@ struct HomeTabView: View {
 
   private var statusSymbol: String {
     if !model.snapshot.daemonReachable { return "xmark.octagon.fill" }
-    if vpnUp { return "checkmark.shield.fill" }
+    if vpnWorking { return "checkmark.shield.fill" }
     if model.snapshot.enrolled { return "link.circle.fill" }
     return "moon.stars.fill"
   }
 
   private var statusColor: Color {
     if !model.snapshot.daemonReachable { return .red }
-    if vpnUp && !model.snapshot.handshakeOK { return .orange }
-    if vpnUp { return .green }
+    if vpnWorking { return .green }
     if model.snapshot.enrolled { return .accentColor }
     return .secondary
   }
 
   private var headline: String {
     if !model.snapshot.daemonReachable { return "Agent Offline" }
-    if vpnUp && !model.snapshot.handshakeOK { return "VPN Up · No Handshake" }
-    if vpnUp { return "VPN Connected" }
+    if vpnWorking { return "VPN Connected" }
     if model.snapshot.enrolled { return "VPN Off" }
     return "Ready to Enroll"
   }
 
   private var subhead: String {
     if !model.snapshot.daemonReachable { return "Start the background agent." }
-    if vpnUp && !model.snapshot.handshakeOK {
-      return "Interface is up but peer unreachable — check WG config / Endpoint"
-    }
-    if vpnUp, let ip = model.snapshot.internalIP, !ip.isEmpty { return ip }
-    if !model.snapshot.helperOK && model.snapshot.daemonReachable {
-      return "WireGuard helper offline — Disconnect may ask for Mac password"
-    }
+    if vpnWorking, let ip = model.snapshot.internalIP, !ip.isEmpty { return ip }
     if model.snapshot.enrolled {
       return model.snapshot.hostname.isEmpty ? "Linked · config ready" : model.snapshot.hostname
     }

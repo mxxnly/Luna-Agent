@@ -135,6 +135,9 @@ func findBash4() string {
 }
 
 func (m *Manager) tunnelAlive() bool {
+	if st, err := HelperTunnelStatus(); err == nil {
+		return st.Up || st.HandshakeOK
+	}
 	if _, err := os.Stat(m.nameFilePath()); err == nil {
 		return true
 	}
@@ -149,13 +152,16 @@ func (m *Manager) tunnelAlive() bool {
 	return len(bytes.TrimSpace(out)) > 0
 }
 
-// HasRecentHandshake reports whether any peer has a non-zero latest handshake.
-// Interface can be "up" with no handshake (bad Endpoint / peer unreachable).
+// HasRecentHandshake reports whether the peer has a live handshake / traffic.
+// Prefer the root helper — userspace wireguard-go sockets are root-only.
 func (m *Manager) HasRecentHandshake() bool {
 	if m.DryRun {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		return m.up
+	}
+	if st, err := HelperTunnelStatus(); err == nil {
+		return st.HandshakeOK
 	}
 	wg := findOnPath("wg")
 	if wg == "" {

@@ -28,8 +28,13 @@ type request struct {
 }
 
 type response struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
+	OK           bool   `json:"ok"`
+	Error        string `json:"error,omitempty"`
+	Up           bool   `json:"up,omitempty"`
+	HandshakeOK  bool   `json:"handshake_ok,omitempty"`
+	Iface        string `json:"iface,omitempty"`
+	RxBytes      int64  `json:"rx_bytes,omitempty"`
+	TxBytes      int64  `json:"tx_bytes,omitempty"`
 }
 
 func main() {
@@ -87,6 +92,7 @@ func handle(c net.Conn) {
 			_ = json.NewEncoder(c).Encode(response{OK: false, Error: err.Error()})
 			return
 		}
+		relaxNameFilePerms()
 		_ = json.NewEncoder(c).Encode(response{OK: true})
 	case "down":
 		if err := wgQuick("down", conf); err != nil {
@@ -94,6 +100,10 @@ func handle(c net.Conn) {
 			return
 		}
 		_ = json.NewEncoder(c).Encode(response{OK: true})
+	case "status":
+		st := tunnelStatus()
+		st.OK = true
+		_ = json.NewEncoder(c).Encode(st)
 	case "install_pkg":
 		if err := installPkg(req.URL, req.SHA256); err != nil {
 			_ = json.NewEncoder(c).Encode(response{OK: false, Error: err.Error()})
@@ -249,4 +259,63 @@ func installPkg(url, wantSHA string) error {
 		return fmt.Errorf("installer failed: %s", msg)
 	}
 	return nil
+}
+
+// wireguard-go creates /var/run/wireguard/wg0.name as 0400 root — user agent
+// cannot resolve utun / query handshakes. Make the name file readable.
+func relaxNameFilePerms() {
+	namePath := filepath.Join("/var/run/wireguard", ifaceName+".name")
+	_ = os.Chmod(namePath, 0o644)
+}
+
+func tunnelStatus() response {
+	relaxNameFilePerms()
+	namePath := filepath.Join("/var/run/wireguard", ifaceName+".name")
+	st := response{}
+	if data, err := os.ReadFile(namePath); err == nil {
+		st.Up = true
+		st.Iface = strings.TrimSpace(string(data))
+	}
+	wgBin := findBin("wg")
+	if wgBin == "" {
+		return st
+	}
+	iface := ifaceName
+	if st.Iface != "" {
+		iface = st.Iface
+	}
+	out, err := exec.Command(wgBin, "show", iface, "latest-handshakes").CombinedOutput()
+	if err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			ts := fields[len(fields)-1]
+			if ts != "0" && ts != "" {
+				st.HandshakeOK = true
+				break
+			}
+		}
+	}
+	tout, err := exec.Command(wgBin, "show", iface, "transfer").CombinedOutput()
+	if err == nil {
+		for _, line := range strings.Split(string(tout), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 3 {
+				continue
+			}
+			rx, _ := strconv.ParseInt(fields[len(fields)-2], 10, 64)
+			tx, _ := strconv.ParseInt(fields[len(fields)-1], 10, 64)
+			st.RxBytes += rx
+			st.TxBytes += tx
+		}
+	}
+	if !st.HandshakeOK && (st.RxBytes > 0 || st.TxBytes > 0) {
+		st.HandshakeOK = true
+	}
+	if st.HandshakeOK {
+		st.Up = true
+	}
+	return st
 }

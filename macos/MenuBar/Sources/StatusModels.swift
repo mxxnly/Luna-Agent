@@ -47,6 +47,12 @@ struct AgentStatusSnapshot {
   /// Sensitive local actions need admin unlock when configured.
   var needsAdminUnlock: Bool { adminConfigured && !adminUnlocked }
 
+  /// Interface present (may be up without peer).
+  var vpnInterfaceUp: Bool { vpnState == "up" }
+
+  /// Tunnel is actually usable (handshake or traffic via helper).
+  var vpnWorking: Bool { handshakeOK }
+
   /// Version for UI: prefer daemon IPC, else installed .app bundle.
   var displayAgentVersion: String {
     AppVersion.resolved(daemon: agentVersion)

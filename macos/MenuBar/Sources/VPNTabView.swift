@@ -7,15 +7,20 @@ struct VPNTabView: View {
 
   private var vpnUp: Bool {
     if let pending = model.pendingVPN { return pending }
-    return model.snapshot.vpnState == "up"
+    return model.snapshot.vpnInterfaceUp
+  }
+
+  private var vpnWorking: Bool {
+    if let pending = model.pendingVPN { return pending }
+    return model.snapshot.vpnWorking
   }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 10) {
-        Image(systemName: vpnUp ? "lock.shield.fill" : "lock.open.fill")
+        Image(systemName: vpnWorking ? "lock.shield.fill" : (vpnUp ? "exclamationmark.shield.fill" : "lock.open.fill"))
           .font(.title2)
-          .foregroundStyle(vpnUp ? .green : .red)
+          .foregroundStyle(vpnWorking ? .green : (vpnUp ? .orange : .red))
         VStack(alignment: .leading, spacing: 2) {
           Text(vpnTitle)
             .font(.headline)
@@ -32,9 +37,11 @@ struct VPNTabView: View {
       .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
       VStack(spacing: 6) {
-        row("Config", model.snapshot.hasWGConfig ? "Saved" : "Not set")
-        row("Handshake", vpnUp ? (model.snapshot.handshakeOK ? "OK" : "none") : "—")
+        row("Working", vpnWorking ? "yes" : "no")
+        row("Interface", vpnUp ? "up" : "down")
+        row("Handshake", vpnUp || vpnWorking ? (model.snapshot.handshakeOK ? "OK" : "none") : "—")
         row("Helper", model.snapshot.helperOK ? "running" : "offline (Mac password)")
+        row("Config", model.snapshot.hasWGConfig ? "Saved" : "Not set")
         if !model.snapshot.desiredVPN.isEmpty {
           row("Desired", model.snapshot.desiredVPN)
         }
@@ -97,16 +104,16 @@ struct VPNTabView: View {
   }
 
   private var vpnTitle: String {
-    if vpnUp && !model.snapshot.handshakeOK { return "Up · no handshake" }
-    if vpnUp { return "Connected" }
+    if vpnWorking { return "Connected" }
+    if vpnUp { return "Interface up · not working" }
     return "Disconnected"
   }
 
   private var detailLine: String {
-    if vpnUp && !model.snapshot.handshakeOK {
-      return "Peer unreachable — check Endpoint / WG config"
+    if vpnWorking, let ip = model.snapshot.internalIP, !ip.isEmpty { return ip }
+    if vpnUp && !vpnWorking {
+      return "No peer handshake — check Endpoint / keys"
     }
-    if vpnUp, let ip = model.snapshot.internalIP, !ip.isEmpty { return ip }
     if !model.snapshot.helperOK { return "Helper offline — actions may ask Mac password" }
     return model.snapshot.tunnelMode == "dry-run" ? "Simulated tunnel" : "Live WireGuard"
   }

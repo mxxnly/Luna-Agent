@@ -17,8 +17,22 @@ type helperReq struct {
 }
 
 type helperRes struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
+	OK          bool   `json:"ok"`
+	Error       string `json:"error,omitempty"`
+	Up          bool   `json:"up,omitempty"`
+	HandshakeOK bool   `json:"handshake_ok,omitempty"`
+	Iface       string `json:"iface,omitempty"`
+	RxBytes     int64  `json:"rx_bytes,omitempty"`
+	TxBytes     int64  `json:"tx_bytes,omitempty"`
+}
+
+// TunnelStatus is live WireGuard state from the root helper (authoritative).
+type TunnelStatus struct {
+	Up          bool
+	HandshakeOK bool
+	Iface       string
+	RxBytes     int64
+	TxBytes     int64
 }
 
 func helperAvailable() bool {
@@ -40,37 +54,58 @@ func helperAvailable() bool {
 }
 
 func callHelper(op string) error {
-	return callHelperReq(helperReq{Op: op})
+	_, err := callHelperRaw(helperReq{Op: op})
+	return err
 }
 
 // InstallPkg asks the root helper to download, verify, and install a .pkg.
 func InstallPkg(url, sha256 string) error {
-	return callHelperReq(helperReq{Op: "install_pkg", URL: url, SHA256: sha256})
+	_, err := callHelperRaw(helperReq{Op: "install_pkg", URL: url, SHA256: sha256})
+	return err
 }
 
-func callHelperReq(req helperReq) error {
+// HelperTunnelStatus asks the root helper for up/handshake/transfer.
+func HelperTunnelStatus() (TunnelStatus, error) {
+	res, err := callHelperRaw(helperReq{Op: "status"})
+	if err != nil {
+		return TunnelStatus{}, err
+	}
+	return TunnelStatus{
+		Up:          res.Up,
+		HandshakeOK: res.HandshakeOK,
+		Iface:       res.Iface,
+		RxBytes:     res.RxBytes,
+		TxBytes:     res.TxBytes,
+	}, nil
+}
+
+func callHelperRaw(req helperReq) (helperRes, error) {
+	var zero helperRes
 	c, err := net.DialTimeout("unix", helperSock, 2*time.Second)
 	if err != nil {
-		return fmt.Errorf("wg helper not running — reinstall LunaAgent.pkg (one admin password at install)")
+		return zero, fmt.Errorf("wg helper not running — reinstall LunaAgent.pkg (one admin password at install)")
 	}
 	defer c.Close()
 	timeout := 60 * time.Second
 	if req.Op == "install_pkg" {
 		timeout = 10 * time.Minute
 	}
+	if req.Op == "status" || req.Op == "ping" {
+		timeout = 3 * time.Second
+	}
 	_ = c.SetDeadline(time.Now().Add(timeout))
 	if err := json.NewEncoder(c).Encode(req); err != nil {
-		return err
+		return zero, err
 	}
 	var res helperRes
 	if err := json.NewDecoder(c).Decode(&res); err != nil {
-		return err
+		return zero, err
 	}
 	if !res.OK {
 		if res.Error == "" {
-			return fmt.Errorf("helper failed")
+			return zero, fmt.Errorf("helper failed")
 		}
-		return fmt.Errorf("%s", res.Error)
+		return zero, fmt.Errorf("%s", res.Error)
 	}
-	return nil
+	return res, nil
 }

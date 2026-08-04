@@ -45,7 +45,11 @@ fi
 cd "$ROOT"
 if ! git rev-parse "$TAG" >/dev/null 2>&1; then
   git tag -a "$TAG" -m "$TITLE"
-  echo "created tag $TAG (push with: git push origin $TAG)"
+  echo "created tag $TAG"
+fi
+# gh release create requires the tag on the remote
+if ! git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+  git push origin "$TAG"
 fi
 
 if gh release view "$TAG" >/dev/null 2>&1; then

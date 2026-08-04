@@ -1,68 +1,69 @@
 # LunaAgent
 
-macOS agent for organization-managed secure access.
+**Organization-managed WireGuard on macOS.**
 
-LunaAgent runs in the menu bar, maintains a WireGuard tunnel (userspace), reports device and load telemetry to a configurable **Control Server**, and applies remote commands over HTTPS — including when the VPN tunnel is down.
+LunaAgent is a menu-bar agent that enrolls devices into your control plane, maintains a userspace WireGuard tunnel, and applies signed remote commands — including while the tunnel is down. Inventory and load telemetry flow back over HTTPS so operators can see machines without guessing.
 
-Any control plane that implements **Control API v1** can manage LunaAgent. Reference implementation: `vpn-control-panel` (`/api/v1/agent/*`).
+Any panel that implements **Control API v1** can drive LunaAgent. Reference control plane: `vpn-control-panel` (`/api/v1/agent/*`).
 
-[![GitHub release](https://img.shields.io/github/v/release/mxxnly/Luna-Agent?include_prereleases)](https://github.com/mxxnly/Luna-Agent/releases)
+[![Release](https://img.shields.io/github/v/release/mxxnly/Luna-Agent?include_prereleases&label=release)](https://github.com/mxxnly/Luna-Agent/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> **Versioning:** `0.x.y` builds are **beta** (GitHub Pre-release). `1.0.0+` is **stable**. See [docs/releasing.md](docs/releasing.md).
+> **Channels:** `0.x.y` = **beta** (GitHub Pre-release). `1.0.0+` = **stable** (Latest). Details in [docs/releasing.md](docs/releasing.md).
 
-## Install (end users / IT)
+---
 
-Download the dual packages from [Releases](https://github.com/mxxnly/Luna-Agent/releases):
+## Install
 
-| Package | macOS |
-|---------|--------|
-| **LunaAgent_13plus.pkg** | 13 Ventura and newer (full UI, SMAppService) |
-| **LunaAgent_Legacy_10.14.pkg** | 10.14–12 only (reduced UI) |
+Download from [Releases](https://github.com/mxxnly/Luna-Agent/releases) — pick the package that matches the Mac:
 
-Quick steps: [docs/install.md](docs/install.md). Prefer copying the `.pkg` to `/tmp` before `installer` if Desktop is blocked by TCC.
+| Package | macOS | Experience |
+|---------|--------|------------|
+| `LunaAgent_13plus.pkg` | 13 Ventura and newer | Full SwiftUI UI · SMAppService lifecycle |
+| `LunaAgent_Legacy_10.14.pkg` | 10.14–12 only | Reduced AppKit UI · classic launchd |
 
-## Features
+Verify the SHA-256, copy the pkg to `/tmp` if Desktop/Downloads is TCC-blocked, then install. Full walkthrough: **[docs/install.md](docs/install.md)**.
 
-- WireGuard connect / disconnect (menu bar + remote API; `LUNA_WG_DRY_RUN=1` for CI)
-- Device inventory heartbeat and signed remote commands (Ed25519)
-- Push full WireGuard `.conf` with backup / rollback
-- CPU / RAM / disk snapshot and top processes (observe-only; full charts on macOS 13+)
-- Device token in Keychain; revoke / rotate via Control API
+---
+
+## What it does
+
+- **Connect / Disconnect** from the menu bar or the control plane
+- **Enroll** with Control URL + code → device token in Keychain
+- **Apply** full WireGuard configs with backup and rollback on failure
+- **Heartbeat** device inventory; observe-only CPU / RAM / disk / top processes
+- **Execute** Ed25519-signed, time-limited remote commands (no replay)
+- **Ship** as a self-contained `.app` — daemon, root helper, and WG tools live inside the bundle
+
+---
 
 ## Documentation
 
-| Doc | Description |
-|-----|-------------|
-| [Install overview](docs/install.md) | Which pkg, verify sha256, first launch |
-| [macOS 13+](docs/install-13plus.md) | SMAppService, Trash uninstall |
-| [Legacy 10.14–12](docs/install-legacy.md) | LaunchAgents/Daemon, residual plists |
-| [User guide](docs/user-guide.md) | Enroll, VPN, WG conf, Device ID |
-| [Architecture](docs/architecture.md) | Components, IPC, control plane |
-| [Packaging](docs/packaging.md) | Bundle layout, `make installer` |
-| [Releasing](docs/releasing.md) | Beta vs stable, GitHub Releases |
-| [Development](docs/development.md) | Local build and test |
-| [Security](docs/security.md) / [SECURITY.md](SECURITY.md) | Reporting and hard rules |
-| [Control API](api/openapi.yaml) | OpenAPI v1 |
-| [ADRs](docs/adr/) | Tech stack and build decisions |
+| Guide | Audience |
+|-------|----------|
+| [Install](docs/install.md) · [13+](docs/install-13plus.md) · [Legacy](docs/install-legacy.md) | IT / end users |
+| [User guide](docs/user-guide.md) | Operators of enrolled Macs |
+| [Architecture](docs/architecture.md) | Engineers integrating or extending |
+| [Packaging](docs/packaging.md) · [Releasing](docs/releasing.md) | Maintainers shipping builds |
+| [Development](docs/development.md) · [Contributing](CONTRIBUTING.md) | Contributors |
+| [Security](docs/security.md) · [SECURITY.md](SECURITY.md) | Security review & disclosure |
+| [Control API](api/openapi.yaml) · [ADRs](docs/adr/) | Protocol & design history |
 
-## Build (developers)
+---
+
+## Build
 
 ```bash
-make ci                 # lint + tests + universal Go binaries
-make e2e                # mockcontrol enroll/heartbeat
-make installer          # both pkgs → ~/Desktop/LunaAgent/<VERSION>/
-# VERSION=0.0.2 make installer
-make publish-release    # upload Desktop folder to GitHub Releases (gh auth required)
+make ci                       # lint, tests, universal Go binaries
+make e2e                      # enroll/heartbeat against mockcontrol
+VERSION=0.0.1 make installer  # dual pkgs → ~/Desktop/LunaAgent/<VERSION>/
+VERSION=0.0.1 make publish-release
 ```
 
-Default `VERSION` is `0.0.1` (beta). See [docs/packaging.md](docs/packaging.md).
+Requires Go 1.22+, Swift 5.9+, and a macOS SDK (Xcode or CLT). Runtime: macOS 10.14+ with the matching installer channel.
 
-## Requirements
-
-- **Runtime:** macOS 10.14+ (use the matching pkg channel)
-- **Build:** Go 1.22+, Swift 5.9+, macOS SDK / Xcode CLT
-- Control Server with HTTPS (or `mockcontrol` for local)
+---
 
 ## License
 
-[MIT](LICENSE) — Copyright (c) 2026 mxxnly
+[MIT](LICENSE) · Copyright © 2026 mxxnly

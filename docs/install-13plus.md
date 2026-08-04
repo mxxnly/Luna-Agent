@@ -1,50 +1,59 @@
-# Install — macOS 13+ (LunaAgent_13plus.pkg)
+# macOS 13+ channel
 
-**Beta** while version is `0.x.y`. Requires macOS 13 Ventura or newer.
+Package: **`LunaAgent_13plus.pkg`** · Minimum OS: **Ventura 13.0** · Line: beta while version is `0.x.y`.
 
-## What this package installs
+This is the primary distribution for modern Macs.
 
-Only:
+## What lands on disk
 
-- `/Applications/LunaAgent.app`
+A single application:
 
-Inside the app:
+```text
+/Applications/LunaAgent.app
+```
 
-- `Contents/MacOS/LunaAgent` — menu bar UI (SwiftUI)
-- `Contents/MacOS/lunaagentd` — user agent
-- `Contents/MacOS/luna-wghelper` — root WireGuard helper (via SMAppService)
-- `Contents/Resources/luna-wg/` — bash, wg, wg-quick, wireguard-go
-- `Contents/Library/LaunchAgents|Daemons/*.plist` — embedded for SMAppService (`BundleProgram`)
+Everything the product needs is inside the bundle:
 
-No primary install under `/usr/local`.
+| Path | Role |
+|------|------|
+| `Contents/MacOS/LunaAgent` | Menu bar UI (SwiftUI) |
+| `Contents/MacOS/lunaagentd` | User agent (enroll, heartbeat, commands) |
+| `Contents/MacOS/luna-wghelper` | Root WireGuard helper |
+| `Contents/Resources/luna-wg/` | `bash`, `wg`, `wg-quick`, `wireguard-go` |
+| `Contents/Library/LaunchAgents|Daemons/*.plist` | SMAppService `BundleProgram` definitions |
+
+No scatter under `/usr/local`.
 
 ## First launch
 
 1. Open LunaAgent.
-2. Complete **Finish setup (Beta)**:
-   - Register login item, background agent, WireGuard helper (`SMAppService`)
-   - Optionally allow notifications
-3. If status is “Needs approval”, open **System Settings → General → Login Items & Extensions** and allow LunaAgent.
-4. Enroll and Connect — [user-guide.md](user-guide.md).
+2. Complete **Finish setup**:
+   - Register login item, background agent, and WireGuard helper via `SMAppService`
+   - Optionally enable notifications
+3. If status shows that approval is required, open  
+   **System Settings → General → Login Items & Extensions** and allow LunaAgent.
+4. Enroll and connect — [user guide](user-guide.md).
+
+Without Background Items approval, the helper cannot stay privileged and VPN operations will fail intermittently.
 
 ## Uninstall
 
-Move **LunaAgent.app** to Trash. SMAppService-registered services unregister with the app.
+Move **LunaAgent.app** to Trash. SMAppService jobs unregister with the app.
 
-Enrollment data may remain in:
+Local enrollment may remain until you clear it:
 
 - `~/Library/Application Support/LunaAgent`
-- Keychain item for the device token
+- Keychain item for the device token (`com.lunaagent.daemon` / `device_token`)
 
-Clear enrollment from the UI when available, or remove that folder / keychain item manually.
+Prefer unenroll in the UI when available.
 
 ## Troubleshooting
 
-| Symptom | Check |
-|---------|--------|
-| Agent offline | Login Items approval; `pgrep -lf lunaagentd` |
-| Helper / VPN fails | Helper daemon approved; look at Console for `luna-wghelper` |
-| Old `/usr/local` binaries | Leftover from pre-0.0.1 scatter installs — safe to remove after migrating to 13plus pkg |
-| Icon / app not updating | Reinstall; upgrades set `BundleIsVersionChecked=false` |
+| Symptom | What to check |
+|---------|----------------|
+| Agent offline after reboot | Login Items approval; `pgrep -lf lunaagentd` |
+| Connect fails / helper errors | Helper approved in Login Items; Console logs for `luna-wghelper` |
+| Leftover `/usr/local` binaries | Pre–0.0.1 scatter installs — remove after migrating to this package |
+| Stale icon or binary after upgrade | Reinstall the pkg (`BundleIsVersionChecked` is disabled for upgrades) |
 
-More: [architecture.md](architecture.md), [packaging.md](packaging.md).
+See also [architecture](architecture.md) and [packaging](packaging.md).

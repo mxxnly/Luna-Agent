@@ -1,15 +1,20 @@
 # Packaging
 
-## Dual installers
+LunaAgent ships **two** productbuild packages from one tree. Both embed the same self-contained app; they differ in minimum OS, UI channel, and how background services are registered.
 
-`scripts/build_installer.sh` (also `make installer`) builds:
+## Build
 
-| Output | Audience |
-|--------|----------|
-| `LunaAgent_13plus.pkg` | macOS 13+ (productbuild + Welcome/ReadMe) |
-| `LunaAgent_Legacy_10.14.pkg` | macOS 10.14–12 (+ postinstall launchd) |
+```bash
+VERSION=0.0.1 make installer
+# runs scripts/build_installer.sh
+```
 
-Published to:
+| Artifact | Audience |
+|----------|----------|
+| `LunaAgent_13plus.pkg` | macOS 13+ · SMAppService · full UI |
+| `LunaAgent_Legacy_10.14.pkg` | macOS 10.14–12 · launchd postinstall · reduced UI |
+
+Output directory:
 
 ```text
 ~/Desktop/LunaAgent/<VERSION>/
@@ -22,11 +27,11 @@ Published to:
   README-Legacy.txt
 ```
 
-Symlinks `~/Desktop/LunaAgent/LATEST` and `LATEST-beta` → current `<VERSION>`. Older version folders are kept.
+Symlinks `LATEST` and `LATEST-beta` under `~/Desktop/LunaAgent/` always point at the version you just built. Older version folders are left in place as an archive.
 
-Default `VERSION` is `0.0.1` (beta). Override: `VERSION=0.0.2 make installer`.
+Default `VERSION` is `0.0.1` (beta). Override per build: `VERSION=0.1.0 make installer`.
 
-## App bundle layout (both channels)
+## Bundle layout (both channels)
 
 ```text
 LunaAgent.app/Contents/
@@ -37,14 +42,19 @@ LunaAgent.app/Contents/
   Resources/AppIcon.icns
 ```
 
-**13+ only:** `Contents/Library/LaunchAgents/com.lunaagent.daemon.plist` and `LaunchDaemons/com.lunaagent.wghelper.plist` with `BundleProgram`.
+**13+** also embeds SMAppService plists:
 
-**Legacy pkg also stages:** `/Library/LaunchAgents|Daemons` plists with absolute paths into `/Applications/LunaAgent.app/...`, plus `start-menubar.sh` / `start-wghelper.sh` under Resources.
+```text
+Contents/Library/LaunchAgents/com.lunaagent.daemon.plist
+Contents/Library/LaunchDaemons/com.lunaagent.wghelper.plist
+```
 
-## Templates
+**Legacy** additionally stages system LaunchAgents/Daemons with absolute paths into `/Applications/LunaAgent.app/...`, plus `start-menubar.sh` / `start-wghelper.sh`.
 
-Short Desktop/release text lives in [`packaging/docs/`](../packaging/docs/) and is filled by `build_installer.sh` (BETA banner + links to this GitHub `docs/` tree).
+## Desktop / release copy
 
-## Deprecated
+Short text files are generated from [`packaging/docs/*.txt.in`](../packaging/docs/) (`__VERSION__` substituted). They stay brief and link to the full guides under `docs/` on GitHub so the two surfaces do not drift.
 
-`scripts/package.sh` — single experimental pkg; prefer `build_installer.sh`.
+## Deprecated path
+
+`scripts/package.sh` builds a single experimental package. Prefer `build_installer.sh` for anything you ship.

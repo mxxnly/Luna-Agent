@@ -2,18 +2,20 @@
 
 ## Supported versions
 
-- **Beta** (`0.x.y`): best-effort fixes on the latest Pre-release.
-- **Stable** (`1.x.y` and newer): security fixes target the latest stable release on `main` / Latest GitHub Release.
+| Line | Policy |
+|------|--------|
+| **Beta** (`0.x.y`) | Best-effort fixes on the latest Pre-release |
+| **Stable** (`1.x` and newer) | Security fixes target the latest stable release on `main` / Latest GitHub Release |
 
 ## Reporting a vulnerability
 
-Report security issues **privately** (GitHub Security Advisory on [mxxnly/Luna-Agent](https://github.com/mxxnly/Luna-Agent), or a private channel to the maintainer **mxxnly**).
+Report **privately** via a [GitHub Security Advisory](https://github.com/mxxnly/Luna-Agent/security/advisories/new) on `mxxnly/Luna-Agent`, or a private channel to the maintainer **mxxnly**.
 
 Include:
 
-- Affected agent version / commit
-- Reproduction steps
-- Impact (auth bypass, secret disclosure, remote command abuse, etc.)
+- Affected agent version or commit
+- Clear reproduction steps
+- Impact assessment (auth bypass, secret disclosure, remote command abuse, …)
 
 **Do not** attach:
 
@@ -21,10 +23,12 @@ Include:
 - Live `device_token` values
 - Valid enroll codes for production tenants
 
-## Hard rules in this project
+## Project hard rules
 
 - Secrets never appear in logs, UI, crash reports, or heartbeat payloads
-- Control plane traffic is HTTPS-only with certificate validation
-- Remote commands are signed and time-limited; replay is rejected
-- WireGuard config files on disk use restrictive permissions (`0600`)
-- Root helper authenticates peers by Unix socket credentials (UID)
+- Control-plane traffic is HTTPS-only with certificate validation
+- Remote commands are signed and time-limited; replays are rejected
+- WireGuard config files on disk use mode `0600`
+- The root helper authenticates peers by Unix socket credentials (UID)
+
+Operational detail: [docs/security.md](docs/security.md).

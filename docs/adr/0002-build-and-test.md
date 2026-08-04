@@ -6,7 +6,7 @@ Accepted (amended: no GitHub Actions in this repo)
 
 ## Context
 
-Builds and tests must be reproducible via Makefile. Automated GitHub Actions were removed from Luna-Agent — CI for the product lives primarily around the control panel deploy; agent quality is gated locally with `make ci` / `make e2e` before release.
+Builds and tests must be reproducible from a Makefile. GitHub Actions were removed from this repository — panel deploy CI lives with `vpn-control-panel`; agent quality is gated locally with `make ci` / `make e2e` before each release.
 
 ## Decision
 

@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-LunaAgent needs a macOS client (menu bar + daemon), WireGuard control, HTTPS Control API client, and a path to notarized releases. The product must work with any Control Server that implements Control API v1.
+LunaAgent needs a macOS client (menu bar + daemon), WireGuard control, an HTTPS Control API client, and a path to signed/notarized releases. Any Control Server that implements Control API v1 must be able to manage the agent.
 
 ## Decision
 

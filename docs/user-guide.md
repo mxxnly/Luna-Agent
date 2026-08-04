@@ -1,48 +1,62 @@
 # User guide
 
-## Concepts
+Day-to-day operation of an enrolled LunaAgent Mac.
 
-- **Control Server URL** — HTTPS base of your panel (e.g. `https://panel.example.com`). Traffic does not require the VPN to be up.
-- **Enroll code** — one-time (or short-lived) code from the panel; exchanged for a `device_token`.
-- **Device ID** — public identifier shown in the UI; safe to copy for support.
-- **WireGuard conf** — applied by the agent; private keys stay on disk mode `0600` and in the tunnel helper path.
+## Terms
+
+| Term | Meaning |
+|------|---------|
+| **Control Server URL** | HTTPS base of your panel (example: `https://panel.example.com`). Must work **without** the VPN up. |
+| **Enroll code** | Short-lived code from the panel, exchanged once for a `device_token`. |
+| **Device ID** | Public identifier shown in the UI — safe to share with support. |
+| **WireGuard conf** | Full config applied by the agent. Private material stays on disk (`0600`) and in the helper path. |
 
 ## Enroll
 
-1. Open LunaAgent (menu bar).
-2. Enter **Control URL** and **enroll code**.
-3. On success the device appears in the panel; token is stored in the Keychain.
+1. Open LunaAgent from the menu bar.
+2. Enter the **Control URL** and **enroll code** from your administrator.
+3. On success the device appears in the panel; the token is stored in the Keychain.
 
-If enroll fails: check URL (HTTPS), clock skew, and that the code is unused.
+If enroll fails, verify HTTPS URL, system clock, and that the code has not already been consumed.
 
-## Connect / Disconnect
+## Connect and Disconnect
 
-- **Connect** brings the tunnel up (via root helper when registered).
-- **Disconnect** tears it down.
-- Remote commands from the panel can also toggle VPN or push a new conf.
+- **Connect** brings the WireGuard interface up through the root helper.
+- **Disconnect** tears it down cleanly.
+- The control plane can also toggle the tunnel or push a new configuration remotely.
 
-On macOS 13+, approve Background Items so the helper can run without a password each time.
+On macOS 13+, Background Items must be approved or the helper will not stay available across reboots.
 
 ## WireGuard configuration
 
-- Paste or receive a full `.conf` from the panel.
-- Invalid conf is rejected; previous conf is restored on apply failure when possible.
-- Do not share PrivateKey / PresharedKey in tickets or screenshots.
+Configs arrive from the panel or can be pasted locally where the UI allows it.
+
+- Invalid conf is rejected.
+- On apply failure the previous conf is restored when a backup exists.
+- Never paste `PrivateKey` / `PresharedKey` into tickets, chat, or screenshots.
 
 ## Notifications (macOS 13+)
 
-Optional alerts for unexpected tunnel drops / auto-reconnect. Connect/Disconnect you press yourself do not spam banners.
+Optional alerts for unexpected tunnel drops and auto-reconnect. Manual Connect / Disconnect does not generate noise.
 
 ## Unenroll / wipe local state
 
-Use the Device UI to unenroll when available (may require admin unlock). Or remove:
+Use the Device tab when available (may require admin unlock). Otherwise remove:
 
-- `~/Library/Application Support/LunaAgent`
-- Keychain password item service `com.lunaagent.daemon` account `device_token`
+```text
+~/Library/Application Support/LunaAgent
+```
 
-Then reinstall or re-enroll as needed.
+and the Keychain password item:
 
-## Channels
+```text
+service: com.lunaagent.daemon
+account: device_token
+```
 
-- Full UI: [install-13plus.md](install-13plus.md)
-- Reduced UI: [install-legacy.md](install-legacy.md)
+Then re-enroll against the panel.
+
+## Channel-specific install notes
+
+- [macOS 13+](install-13plus.md)
+- [Legacy 10.14–12](install-legacy.md)

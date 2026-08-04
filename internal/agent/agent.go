@@ -231,9 +231,7 @@ func (a *Agent) handleIPC(req ipc.Request) ipc.Response {
 		a.setDesired("up")
 		return ipc.Response{OK: true}
 	case "vpn_down":
-		if a.adminConfigured() && !a.adminUnlocked() {
-			return ipc.Response{OK: false, Error: "admin_locked"}
-		}
+		// User may connect/disconnect freely — no org admin gate.
 		// Clear desired first so watchdog cannot race and re-up during Down().
 		a.setDesired("down")
 		if err := a.wg.Down(); err != nil {

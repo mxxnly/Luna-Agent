@@ -101,13 +101,12 @@ final class StatusViewModel: ObservableObject {
   }
 
   func setVPN(_ on: Bool) {
-    if busy { return }
     if on { vpnUp() } else { vpnDown() }
   }
 
   func vpnUp() {
     VPNNotifier.suppressUserInitiated()
-    runBusy(label: "Connecting VPN…") { ipc in
+    runBusy(label: "Connecting VPN…", allowOverlap: true) { ipc in
       ipc.call(op: "vpn_up")
     } done: { [weak self] res in
       let ok = (res["ok"] as? Bool) == true
@@ -120,14 +119,10 @@ final class StatusViewModel: ObservableObject {
 
   func vpnDown() {
     VPNNotifier.suppressUserInitiated()
-    runBusy(label: "Disconnecting VPN…") { ipc in
+    runBusy(label: "Disconnecting VPN…", allowOverlap: true) { ipc in
       ipc.call(op: "vpn_down")
     } done: { [weak self] res in
       let ok = (res["ok"] as? Bool) == true
-      if !ok, (res["error"] as? String) == "admin_locked" {
-        self?.promptAdminUnlock("Admin password required to disconnect")
-        return
-      }
       self?.actionMessage = ok ? nil : self?.friendlyError(res)
       self?.wgMessage = ok ? nil : self?.friendlyError(res)
       self?.wgOK = ok
@@ -334,10 +329,11 @@ final class StatusViewModel: ObservableObject {
 
   private func runBusy(
     label: String,
+    allowOverlap: Bool = false,
     work: @escaping (IPCClient) -> [String: Any],
     done: @escaping ([String: Any]) -> Void
   ) {
-    if busy { return }
+    if busy && !allowOverlap { return }
     busy = true
     busyLabel = label
     if label.contains("Connecting") {

@@ -46,21 +46,14 @@ struct HomeTabView: View {
 
         if showDisconnect {
           Button(role: .destructive) {
-            if model.isAdminLocked {
-              model.promptAdminUnlock("Admin password required to disconnect")
-            } else {
-              model.vpnDown()
-            }
+            model.vpnDown()
           } label: {
-            HStack(spacing: 6) {
-              Label("Disconnect", systemImage: "xmark.circle")
-              if model.isAdminLocked { AdminLockGlyph() }
-            }
-            .frame(maxWidth: .infinity)
+            Label("Disconnect", systemImage: "xmark.circle")
+              .frame(maxWidth: .infinity)
           }
           .buttonStyle(.bordered)
           .controlSize(.regular)
-          .disabled(model.busy || !model.snapshot.daemonReachable)
+          .disabled(!model.snapshot.daemonReachable)
         } else {
           Button {
             model.vpnUp()
@@ -72,8 +65,7 @@ struct HomeTabView: View {
           .tint(.green)
           .controlSize(.regular)
           .disabled(
-            model.busy
-              || !model.snapshot.daemonReachable
+            !model.snapshot.daemonReachable
               || (!model.snapshot.hasWGConfig
                 && model.wgConfText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
           )

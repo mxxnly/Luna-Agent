@@ -8,7 +8,7 @@ struct AdminUnlockSheet: View {
   private var reason: String {
     let msg = (model.adminUnlockMessage ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     if msg.isEmpty || msg.contains("Unlocked") || msg == "Wrong password" || msg == "Enter admin password" {
-      return "Disconnect, config, and re-enroll need the organization password."
+      return "Config, enroll, and unenroll need the organization password."
     }
     return msg
   }

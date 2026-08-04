@@ -15,6 +15,7 @@ Pre-release for the `0.x` line. APIs and packaging may still change before 1.0.0
 - Remote: keep --server alive after password set (killing it early left panel password unset).
 - Remote: set permanent password via RustDesk.toml (embedded helper is not /Applications/RustDesk.app + root, so `--password` CLI never applied and panel still acked ok).
 - Remote: install helper to `~/Applications/LunaRemote.app` and launch once (no dual --server); keeps Screen Recording across Remote off/on.
+- Autostart: always install user LaunchAgents for menu bar (`com.lunaagent.ui`) and agent so reboot works when SMApp Login Item did not stick.
 
 ## Packages
 

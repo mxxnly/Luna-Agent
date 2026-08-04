@@ -51,7 +51,8 @@ Prefer unenroll in the UI when available.
 
 | Symptom | What to check |
 |---------|----------------|
-| Agent offline after reboot | Login Items approval; `pgrep -lf lunaagentd` |
+| Agent / menu bar missing after reboot | Open LunaAgent once (installs login fallbacks). Also: **System Settings → Login Items & Extensions** → allow LunaAgent. Beta builds also install `~/Library/LaunchAgents/com.lunaagent.ui.plist` + `com.lunaagent.agent.plist`. |
+| Agent offline after reboot | `pgrep -lf lunaagentd`; `launchctl print "gui/$(id -u)/com.lunaagent.agent"` |
 | Connect fails / helper errors | Helper approved in Login Items; Console logs for `luna-wghelper` |
 | Leftover `/usr/local` binaries | Pre–0.0.1 scatter installs — remove after migrating to this package |
 | Stale icon or binary after upgrade | Reinstall the pkg (`BundleIsVersionChecked` is disabled for upgrades) |

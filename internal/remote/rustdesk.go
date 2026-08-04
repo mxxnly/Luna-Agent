@@ -24,10 +24,10 @@ type Status struct {
 }
 
 type Config struct {
-	IDServer    string // host or host:port for hbbs (default port 21116)
-	RelayServer string // host:21117
-	Key         string // id_ed25519.pub contents
-	Password    string // permanent session password
+	IDServer    string
+	RelayServer string
+	Key         string
+	Password    string
 }
 
 var (
@@ -35,7 +35,6 @@ var (
 	active Status
 )
 
-// Current returns the last known session status (safe for heartbeat).
 func Current() Status {
 	mu.Lock()
 	defer mu.Unlock()
@@ -48,11 +47,9 @@ func setStatus(s Status) {
 	mu.Unlock()
 }
 
-// Enable configures the embedded remote helper for the org relay and starts it.
-//
-// macOS CLI against a live GUI often hangs forever on --password/--get-id, which
-// blocked agent poll (command stuck "pending", panel password never applied).
-// All CLI calls are hard-timed-out; password is set on a short --server first.
+// Enable configures the org relay, sets the permanent password once via --server,
+// then opens a single GUI instance. CLI against a live GUI spawns extra windows
+// and often hangs — avoid post-GUI --password/--set-* spam.
 func Enable(cfg Config) (Status, error) {
 	cfg.IDServer = strings.TrimSpace(cfg.IDServer)
 	cfg.Key = strings.TrimSpace(cfg.Key)
@@ -77,7 +74,7 @@ func Enable(cfg Config) (Status, error) {
 	}
 
 	stopHelper()
-	time.Sleep(400 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	if err := writeConfig(cfg); err != nil {
 		st := Status{Enabled: false, Error: "config_failed"}
@@ -85,37 +82,47 @@ func Enable(cfg Config) (Status, error) {
 		return st, err
 	}
 
-	// 1) Headless service: set password + org relay (official deploy pattern).
+	// Headless service — set password + options here only (official deploy order).
 	serverCtx, serverCancel := context.WithCancel(context.Background())
-	defer serverCancel()
 	server := exec.CommandContext(serverCtx, bin, "--server")
 	server.Stdout = nil
 	server.Stderr = nil
-	_ = server.Start()
-	time.Sleep(1200 * time.Millisecond)
+	if err := server.Start(); err != nil {
+		serverCancel()
+		st := Status{Enabled: false, Error: "start_failed"}
+		setStatus(st)
+		return st, err
+	}
 
-	applyRelayCLI(bin, idHost, relayHost, cfg.RelayServer, cfg.Key, cfg.Password)
+	time.Sleep(1500 * time.Millisecond)
+	_ = runQuiet(bin, 8*time.Second, "--set-custom-rendezvous-server", idHost)
+	_ = runQuiet(bin, 8*time.Second, "--set-key", cfg.Key)
+	_ = runQuiet(bin, 8*time.Second, "--set-relay-server", relayHost)
+	_ = runQuiet(bin, 8*time.Second, "--set-verification-method", "use-both-passwords")
+	_ = runQuiet(bin, 8*time.Second, "--set-approve-mode", "password")
+	// Longer budget — this is the panel session password.
+	pwErr := runQuiet(bin, 20*time.Second, "--password", cfg.Password)
 	id := strings.TrimSpace(getID(bin))
 
 	serverCancel()
 	if server.Process != nil {
 		_ = server.Process.Kill()
 	}
-	stopHelper()
-	time.Sleep(400 * time.Millisecond)
+	// Do not pkill the whole app family yet — kill only leftover --server if needed.
+	time.Sleep(300 * time.Millisecond)
+	_ = exec.Command("pkill", "-f", "RustDesk.app/Contents/MacOS/RustDesk --server").Run()
+	time.Sleep(300 * time.Millisecond)
 
-	// 2) Pin config again, open GUI for Screen Recording / session UI.
 	_ = writeConfig(cfg)
+
 	if err := ensureRunning(app, bin); err != nil {
 		st := Status{Enabled: false, Error: "start_failed", RustDeskID: id}
 		setStatus(st)
 		return st, err
 	}
 
-	time.Sleep(1500 * time.Millisecond)
-	// Best-effort re-pin (all timed out — must not block poll/ack).
-	applyRelayCLI(bin, idHost, relayHost, cfg.RelayServer, cfg.Key, cfg.Password)
 	if id == "" {
+		time.Sleep(1 * time.Second)
 		id = strings.TrimSpace(getID(bin))
 	}
 
@@ -128,26 +135,18 @@ func Enable(cfg Config) (Status, error) {
 		st.Error = "id_pending"
 	}
 	setStatus(st)
+	if pwErr != nil {
+		st.Error = "password_apply_failed"
+		setStatus(st)
+		return st, fmt.Errorf("failed to set permanent password: %w", pwErr)
+	}
 	return st, nil
 }
 
-func applyRelayCLI(bin, idHost, relayHost, relayServer, key, password string) {
-	_ = runQuiet(bin, "--set-custom-rendezvous-server", idHost)
-	_ = runQuiet(bin, "--set-key", key)
-	_ = runQuiet(bin, "--set-relay-server", relayHost)
-	if relayServer != "" && relayServer != relayHost {
-		_ = runQuiet(bin, "--set-relay-server", relayServer)
-	}
-	_ = runQuiet(bin, "--set-verification-method", "use-both-passwords")
-	_ = runQuiet(bin, "--set-approve-mode", "password")
-	_ = runQuiet(bin, "--password", password)
-}
-
-// Disable stops accepting remote control (clears password / stops helper best-effort).
 func Disable() Status {
 	_, bin, _ := findHelper()
 	if bin != "" {
-		_ = runQuiet(bin, "--password", "")
+		_ = runQuiet(bin, 8*time.Second, "--password", "")
 	}
 	stopHelper()
 	_ = wipeConfigSecrets()
@@ -159,18 +158,21 @@ func Disable() Status {
 func stopHelper() {
 	_ = exec.Command("pkill", "-f", "Resources/RustDesk-").Run()
 	_ = exec.Command("pkill", "-f", "RustDesk.app/Contents/MacOS").Run()
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
 }
 
-func runQuiet(bin string, args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func runQuiet(bin string, timeout time.Duration, args ...string) error {
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	err := cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("timeout: %s %s", bin, strings.Join(args, " "))
+		return fmt.Errorf("timeout: rustdesk %s", strings.Join(args, " "))
 	}
 	return err
 }
@@ -190,7 +192,6 @@ func resourcesDir() string {
 	return filepath.Clean(filepath.Join(filepath.Dir(exe), "..", "Resources"))
 }
 
-// findHelper prefers the RustDesk.app embedded in LunaAgent.app/Contents/Resources.
 func findHelper() (appPath, binPath string, err error) {
 	if p := strings.TrimSpace(os.Getenv("LUNA_RUSTDESK_BIN")); p != "" {
 		if st, e := os.Stat(p); e == nil && !st.IsDir() {
@@ -220,8 +221,7 @@ func findHelper() (appPath, binPath string, err error) {
 func configPaths() []string {
 	var out []string
 	if u, err := user.Current(); err == nil && u.HomeDir != "" {
-		base := filepath.Join(u.HomeDir, "Library/Preferences/com.carriez.RustDesk")
-		out = append(out, filepath.Join(base, "RustDesk2.toml"))
+		out = append(out, filepath.Join(u.HomeDir, "Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"))
 	}
 	if support, err := os.UserConfigDir(); err == nil {
 		out = append(out, filepath.Join(support, "LunaAgent", "rustdesk", "RustDesk2.toml"))
@@ -277,8 +277,9 @@ func wipeConfigSecrets() error {
 }
 
 func ensureRunning(app, bin string) error {
+	// Never open -n: that forced dozens of windows when Enable was re-entered.
 	if app != "" {
-		if err := exec.Command("open", "-n", "-a", app).Run(); err == nil {
+		if err := exec.Command("open", "-a", app).Run(); err == nil {
 			return nil
 		}
 		if err := exec.Command("open", app).Run(); err == nil {
@@ -290,7 +291,7 @@ func ensureRunning(app, bin string) error {
 }
 
 func getID(bin string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "--get-id")
 	out, err := cmd.CombinedOutput()

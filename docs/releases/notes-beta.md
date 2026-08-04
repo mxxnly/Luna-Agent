@@ -11,6 +11,7 @@ Pre-release for the `0.x` line. APIs and packaging may still change before 1.0.0
 - Home shows only whether VPN actually works; interface/handshake/helper details stay on the VPN tab (via root helper status).
 - Remote: keep custom ID server after GUI open (fixes “device offline” when helper opened on public network).
 - Remote: hard-timeout RustDesk CLI so poll/ack cannot hang; set password on --server before GUI.
+- Remote: one GUI open (no -n), no CLI spam after GUI; never re-exec a command after success (ack retry only).
 
 ## Packages
 

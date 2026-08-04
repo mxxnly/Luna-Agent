@@ -40,7 +40,7 @@ type Agent struct {
 
 	mu        sync.Mutex
 	state     store.State
-	done      map[string]struct{}
+	done      map[string]ackResult
 	stopCh    chan struct{}
 	lastError string
 
@@ -95,7 +95,7 @@ func New(cfg Config) (*Agent, error) {
 		store:  st,
 		wg:     &wg.Manager{Dir: filepath.Join(cfg.DataDir, "wg"), DryRun: cfg.WGDryRun || os.Getenv("LUNA_WG_DRY_RUN") == "1"},
 		cookie: cookie,
-		done:   map[string]struct{}{},
+		done:   map[string]ackResult{},
 		stopCh: make(chan struct{}),
 	}
 	s, _ := st.Load()
@@ -538,30 +538,32 @@ func (a *Agent) PollOnce() error {
 	needReport := false
 	for _, c := range cmds {
 		a.mu.Lock()
-		_, seen := a.done[c.ID]
+		prev, seen := a.done[c.ID]
 		a.mu.Unlock()
 		if seen {
-			// Previously executed but ack may have failed — retry ack only.
-			_ = client.Ack(c.ID, true, "", "")
+			// Exec already finished — never re-run (remote_session_enable opens GUI).
+			_ = client.Ack(c.ID, prev.OK, prev.Code, prev.Msg)
 			continue
 		}
 		if err := crypto.Verify(pub, c, now); err != nil {
-			if ackErr := client.Ack(c.ID, false, "bad_signature", err.Error()); ackErr == nil {
+			res := ackResult{OK: false, Code: "bad_signature", Msg: err.Error()}
+			if ackErr := client.Ack(c.ID, res.OK, res.Code, res.Msg); ackErr == nil {
 				a.mu.Lock()
-				a.done[c.ID] = struct{}{}
+				a.done[c.ID] = res
 				a.mu.Unlock()
 			}
 			continue
 		}
 		ok, code, msg := a.execCommand(c)
+		res := ackResult{OK: ok, Code: code, Msg: msg}
+		// Mark done before ack so a failed/slow ack cannot re-exec.
+		a.mu.Lock()
+		a.done[c.ID] = res
+		a.mu.Unlock()
 		if ackErr := client.Ack(c.ID, ok, code, msg); ackErr != nil {
 			log.Printf("command ack failed id=%s: %s", c.ID, secure.Redact(ackErr.Error()))
-			// Do not mark done — next poll retries ack (and re-exec if needed).
 			continue
 		}
-		a.mu.Lock()
-		a.done[c.ID] = struct{}{}
-		a.mu.Unlock()
 		if ok && (c.Type == "vpn_up" || c.Type == "vpn_down" || c.Type == "apply_wg_config" ||
 			c.Type == "remote_session_enable" || c.Type == "remote_session_disable") {
 			needReport = true
@@ -571,6 +573,12 @@ func (a *Agent) PollOnce() error {
 		_ = a.heartbeat(false)
 	}
 	return nil
+}
+
+type ackResult struct {
+	OK   bool
+	Code string
+	Msg  string
 }
 
 func (a *Agent) execCommand(c crypto.Command) (bool, string, string) {

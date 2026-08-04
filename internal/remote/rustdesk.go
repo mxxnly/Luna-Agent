@@ -49,9 +49,9 @@ func setStatus(s Status) {
 
 // Enable configures the embedded remote helper for the org relay and starts it.
 //
-// macOS password apply requires a short-lived `--server` process (official
-// RustDesk deploy script). Permanent password alone fails if verification
-// method is temporary-only — we force use-both-passwords.
+// Important on macOS: do not set options on a short-lived --server then kill it —
+// the GUI often boots back onto the public network. Write toml, open GUI, then
+// apply --set-* / --password against the live process and wait for an ID.
 func Enable(cfg Config) (Status, error) {
 	cfg.IDServer = strings.TrimSpace(cfg.IDServer)
 	cfg.Key = strings.TrimSpace(cfg.Key)
@@ -66,6 +66,7 @@ func Enable(cfg Config) (Status, error) {
 	if cfg.RelayServer == "" {
 		cfg.RelayServer = idHost + ":21117"
 	}
+	relayHost := strings.Split(cfg.RelayServer, ":")[0]
 
 	app, bin, err := findHelper()
 	if err != nil {
@@ -75,6 +76,7 @@ func Enable(cfg Config) (Status, error) {
 	}
 
 	stopHelper()
+	time.Sleep(500 * time.Millisecond)
 
 	if err := writeConfig(cfg); err != nil {
 		st := Status{Enabled: false, Error: "config_failed"}
@@ -82,46 +84,27 @@ func Enable(cfg Config) (Status, error) {
 		return st, err
 	}
 
-	// Official macOS deploy order: --server → --password → (config already written).
-	server := exec.Command(bin, "--server")
-	server.Stdout = nil
-	server.Stderr = nil
-	_ = server.Start()
-	time.Sleep(1200 * time.Millisecond)
-
-	_ = runQuiet(bin, "--password", cfg.Password)
-	time.Sleep(400 * time.Millisecond)
-	_ = runQuiet(bin, "--set-verification-method", "use-both-passwords")
-	_ = runQuiet(bin, "--set-approve-mode", "password")
-	_ = runQuiet(bin, "--set-custom-rendezvous-server", idHost)
-	_ = runQuiet(bin, "--set-key", cfg.Key)
-	_ = runQuiet(bin, "--set-relay-server", cfg.RelayServer)
-	// Re-apply password after options (some builds reset it).
-	_ = runQuiet(bin, "--password", cfg.Password)
-
-	id := strings.TrimSpace(getID(bin))
-
-	// Kill headless server, then open GUI for Screen Recording prompts.
-	if server.Process != nil {
-		_ = server.Process.Kill()
-	}
-	stopHelper()
-	time.Sleep(300 * time.Millisecond)
-
-	// Re-write config in case GUI/server rewrote defaults while we ran.
-	_ = writeConfig(cfg)
-
 	if err := ensureRunning(app, bin); err != nil {
-		st := Status{Enabled: false, Error: "start_failed", RustDeskID: id}
+		st := Status{Enabled: false, Error: "start_failed"}
 		setStatus(st)
 		return st, err
 	}
 
+	// Give the GUI time to read toml, then force org relay (CLI sticks better live).
+	time.Sleep(2 * time.Second)
+	applyRelayCLI(bin, idHost, relayHost, cfg.RelayServer, cfg.Key, cfg.Password)
+	// GUI sometimes rewrites options on first paint — pin again.
 	time.Sleep(1500 * time.Millisecond)
-	// Final password set against the live GUI/service.
-	_ = runQuiet(bin, "--password", cfg.Password)
-	if id == "" {
+	_ = writeConfig(cfg)
+	applyRelayCLI(bin, idHost, relayHost, cfg.RelayServer, cfg.Key, cfg.Password)
+
+	id := ""
+	for i := 0; i < 8; i++ {
+		time.Sleep(500 * time.Millisecond)
 		id = strings.TrimSpace(getID(bin))
+		if id != "" {
+			break
+		}
 	}
 
 	st := Status{
@@ -134,6 +117,19 @@ func Enable(cfg Config) (Status, error) {
 	}
 	setStatus(st)
 	return st, nil
+}
+
+func applyRelayCLI(bin, idHost, relayHost, relayServer, key, password string) {
+	_ = runQuiet(bin, "--set-custom-rendezvous-server", idHost)
+	_ = runQuiet(bin, "--set-key", key)
+	// Some builds want host only; others accept host:port — set both shapes.
+	_ = runQuiet(bin, "--set-relay-server", relayHost)
+	if relayServer != "" && relayServer != relayHost {
+		_ = runQuiet(bin, "--set-relay-server", relayServer)
+	}
+	_ = runQuiet(bin, "--set-verification-method", "use-both-passwords")
+	_ = runQuiet(bin, "--set-approve-mode", "password")
+	_ = runQuiet(bin, "--password", password)
 }
 
 // Disable stops accepting remote control (clears password / stops helper best-effort).
@@ -207,8 +203,11 @@ func findHelper() (appPath, binPath string, err error) {
 func configPaths() []string {
 	var out []string
 	if u, err := user.Current(); err == nil && u.HomeDir != "" {
-		// Options / network live in RustDesk2.toml on macOS.
-		out = append(out, filepath.Join(u.HomeDir, "Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"))
+		base := filepath.Join(u.HomeDir, "Library/Preferences/com.carriez.RustDesk")
+		out = append(out,
+			filepath.Join(base, "RustDesk2.toml"),
+			filepath.Join(base, "RustDesk.toml"),
+		)
 	}
 	if support, err := os.UserConfigDir(); err == nil {
 		out = append(out, filepath.Join(support, "LunaAgent", "rustdesk", "RustDesk2.toml"))
@@ -223,8 +222,11 @@ func writeConfig(cfg Config) error {
 		rendezvous = idHost + ":21116"
 	}
 	idOnly := strings.Split(idHost, ":")[0]
-	// use-both-passwords: macOS often ignores --password unless both are allowed.
-	body := fmt.Sprintf(`rendezvous_server = '%s'
+	relay := cfg.RelayServer
+	if relay == "" {
+		relay = idOnly + ":21117"
+	}
+	body2 := fmt.Sprintf(`rendezvous_server = '%s'
 nat_type = 1
 serial = 0
 
@@ -235,14 +237,26 @@ key = '%s'
 verification-method = 'use-both-passwords'
 approve-mode = 'password'
 allow-remote-config-modification = 'N'
-`, rendezvous, idOnly, cfg.RelayServer, cfg.Key)
+`, rendezvous, idOnly, relay, cfg.Key)
 
 	wrote := false
 	for _, path := range configPaths() {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			continue
 		}
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		content := body2
+		// RustDesk.toml holds identity; only touch options file content for *2.toml.
+		if strings.HasSuffix(path, "RustDesk.toml") && !strings.HasSuffix(path, "RustDesk2.toml") {
+			// Do not wipe encrypted id/password store — leave file if present.
+			if _, err := os.Stat(path); err == nil {
+				continue
+			}
+			content = ""
+		}
+		if content == "" {
+			continue
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			return err
 		}
 		wrote = true
@@ -255,7 +269,9 @@ allow-remote-config-modification = 'N'
 
 func wipeConfigSecrets() error {
 	for _, path := range configPaths() {
-		_ = os.Remove(path)
+		if strings.HasSuffix(path, "RustDesk2.toml") {
+			_ = os.Remove(path)
+		}
 	}
 	return nil
 }
@@ -279,7 +295,6 @@ func getID(bin string) string {
 		return ""
 	}
 	line := strings.TrimSpace(string(out))
-	// Prefer last non-empty line (GUI noise sometimes precedes the id).
 	parts := strings.Split(line, "\n")
 	for i := len(parts) - 1; i >= 0; i-- {
 		p := strings.TrimSpace(parts[i])

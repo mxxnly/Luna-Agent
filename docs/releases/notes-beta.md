@@ -13,6 +13,7 @@ Pre-release for the `0.x` line. APIs and packaging may still change before 1.0.0
 - Remote: hard-timeout RustDesk CLI so poll/ack cannot hang; set password on --server before GUI.
 - Remote: one GUI open (no -n), no CLI spam after GUI; never re-exec a command after success (ack retry only).
 - Remote: keep --server alive after password set (killing it early left panel password unset).
+- Remote: set permanent password via RustDesk.toml (embedded helper is not /Applications/RustDesk.app + root, so `--password` CLI never applied and panel still acked ok).
 
 ## Packages
 

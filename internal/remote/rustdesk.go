@@ -4,11 +4,14 @@ package remote
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"math/big"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -35,6 +38,11 @@ var (
 	active Status
 )
 
+var (
+	rePasswordLine = regexp.MustCompile(`(?m)^password\s*=\s*(?:'[^']*'|"[^"]*"|\S+)\s*$`)
+	reSaltLine     = regexp.MustCompile(`(?m)^salt\s*=\s*(?:'[^']*'|"[^"]*"|\S+)\s*$`)
+)
+
 func Current() Status {
 	mu.Lock()
 	defer mu.Unlock()
@@ -47,9 +55,15 @@ func setStatus(s Status) {
 	mu.Unlock()
 }
 
-// Enable writes org relay config, sets permanent password on a live --server,
-// then opens one GUI. The --server process is kept running — killing it before
-// the password flush caused “incorrect password” while panel still saw ack ok.
+// Enable writes org relay config + permanent password into RustDesk.toml, then
+// starts --server and one GUI.
+//
+// Important: RustDesk's `--password` CLI only works when the binary lives in
+// /Applications/RustDesk.app AND runs as root. Our helper is embedded under
+// LunaAgent.app and runs as the user LaunchAgent, so CLI always prints
+// "Installation and administrative privileges required!" with exit 0 — panel
+// saw ok while password stayed empty. We write password into RustDesk.toml
+// instead; RustDesk hashes/encrypts it on next load.
 func Enable(cfg Config) (Status, error) {
 	cfg.IDServer = strings.TrimSpace(cfg.IDServer)
 	cfg.Key = strings.TrimSpace(cfg.Key)
@@ -81,6 +95,11 @@ func Enable(cfg Config) (Status, error) {
 		setStatus(st)
 		return st, err
 	}
+	if err := writePermanentPassword(cfg.Password); err != nil {
+		st := Status{Enabled: false, Error: "password_apply_failed"}
+		setStatus(st)
+		return st, err
+	}
 
 	server := exec.Command(bin, "--server")
 	server.Stdout = nil
@@ -98,15 +117,6 @@ func Enable(cfg Config) (Status, error) {
 	_ = runQuiet(bin, 10*time.Second, "--set-verification-method", "use-both-passwords")
 	_ = runQuiet(bin, 10*time.Second, "--set-approve-mode", "password")
 
-	pwErr := runQuiet(bin, 25*time.Second, "--password", cfg.Password)
-	// Give RustDesk time to flush encrypted password to disk before any further steps.
-	time.Sleep(2 * time.Second)
-	if pwErr == nil {
-		// Second apply — some macOS builds no-op the first call.
-		pwErr = runQuiet(bin, 25*time.Second, "--password", cfg.Password)
-		time.Sleep(1 * time.Second)
-	}
-
 	id := strings.TrimSpace(getID(bin))
 
 	_ = writeConfig(cfg)
@@ -117,7 +127,6 @@ func Enable(cfg Config) (Status, error) {
 		return st, err
 	}
 
-	// Keep --server alive (do not kill). Reap in background when it exits.
 	go func() {
 		_ = server.Wait()
 	}()
@@ -130,27 +139,18 @@ func Enable(cfg Config) (Status, error) {
 	st := Status{
 		Enabled:    true,
 		RustDeskID: id,
-		// Only claim relay when we have an ID; true online check is hbbs-side.
-		RelayOK: id != "",
+		RelayOK:    id != "",
 	}
 	if id == "" {
 		st.Error = "id_pending"
 	}
 	setStatus(st)
-	if pwErr != nil {
-		st.Error = "password_apply_failed"
-		setStatus(st)
-		return st, fmt.Errorf("failed to set permanent password: %w", pwErr)
-	}
 	return st, nil
 }
 
 func Disable() Status {
-	_, bin, _ := findHelper()
-	if bin != "" {
-		_ = runQuiet(bin, 8*time.Second, "--password", "")
-	}
 	stopHelper()
+	_ = writePermanentPassword("")
 	_ = wipeConfigSecrets()
 	st := Status{Enabled: false}
 	setStatus(st)
@@ -231,6 +231,14 @@ func configPaths() []string {
 	return out
 }
 
+func identityTomlPaths() []string {
+	var out []string
+	if u, err := user.Current(); err == nil && u.HomeDir != "" {
+		out = append(out, filepath.Join(u.HomeDir, "Library/Preferences/com.carriez.RustDesk/RustDesk.toml"))
+	}
+	return out
+}
+
 func writeConfig(cfg Config) error {
 	idHost := cfg.IDServer
 	rendezvous := idHost
@@ -271,10 +279,83 @@ allow-remote-config-modification = 'N'
 	return nil
 }
 
+// writePermanentPassword sets password= in RustDesk.toml (plaintext; hashed on load).
+// Panel passwords are alphanumeric; single-quote TOML is safe.
+func writePermanentPassword(password string) error {
+	paths := identityTomlPaths()
+	if len(paths) == 0 {
+		return fmt.Errorf("no identity toml path")
+	}
+	wrote := false
+	for _, path := range paths {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			continue
+		}
+		body, err := os.ReadFile(path)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		next, err := patchIdentityPassword(string(body), password)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, []byte(next), 0o600); err != nil {
+			return err
+		}
+		wrote = true
+	}
+	if !wrote {
+		return fmt.Errorf("could not write permanent password")
+	}
+	return nil
+}
+
+func patchIdentityPassword(body, password string) (string, error) {
+	if strings.ContainsAny(password, "'\"\n\r") {
+		return "", fmt.Errorf("password contains unsupported characters")
+	}
+	line := fmt.Sprintf("password = '%s'", password)
+	if strings.TrimSpace(body) == "" {
+		salt, err := randomSalt(32)
+		if err != nil {
+			return "", err
+		}
+		return line + "\nsalt = '" + salt + "'\n", nil
+	}
+	if rePasswordLine.MatchString(body) {
+		body = rePasswordLine.ReplaceAllString(body, line)
+	} else {
+		body = line + "\n" + body
+	}
+	if !reSaltLine.MatchString(body) {
+		salt, err := randomSalt(32)
+		if err != nil {
+			return "", err
+		}
+		body = "salt = '" + salt + "'\n" + body
+	}
+	return body, nil
+}
+
+func randomSalt(n int) (string, error) {
+	const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+	out := make([]byte, n)
+	max := big.NewInt(int64(len(alphabet)))
+	for i := 0; i < n; i++ {
+		v, err := rand.Int(rand.Reader, max)
+		if err != nil {
+			return "", err
+		}
+		out[i] = alphabet[v.Int64()]
+	}
+	return string(out), nil
+}
+
 func wipeConfigSecrets() error {
 	for _, path := range configPaths() {
 		_ = os.Remove(path)
 	}
+	_ = writePermanentPassword("")
 	return nil
 }
 

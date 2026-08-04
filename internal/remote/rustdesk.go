@@ -47,9 +47,9 @@ func setStatus(s Status) {
 	mu.Unlock()
 }
 
-// Enable configures the org relay, sets the permanent password once via --server,
-// then opens a single GUI instance. CLI against a live GUI spawns extra windows
-// and often hangs — avoid post-GUI --password/--set-* spam.
+// Enable writes org relay config, sets permanent password on a live --server,
+// then opens one GUI. The --server process is kept running — killing it before
+// the password flush caused “incorrect password” while panel still saw ack ok.
 func Enable(cfg Config) (Status, error) {
 	cfg.IDServer = strings.TrimSpace(cfg.IDServer)
 	cfg.Key = strings.TrimSpace(cfg.Key)
@@ -82,54 +82,56 @@ func Enable(cfg Config) (Status, error) {
 		return st, err
 	}
 
-	// Headless service — set password + options here only (official deploy order).
-	serverCtx, serverCancel := context.WithCancel(context.Background())
-	server := exec.CommandContext(serverCtx, bin, "--server")
+	server := exec.Command(bin, "--server")
 	server.Stdout = nil
 	server.Stderr = nil
 	if err := server.Start(); err != nil {
-		serverCancel()
 		st := Status{Enabled: false, Error: "start_failed"}
 		setStatus(st)
 		return st, err
 	}
 
-	time.Sleep(1500 * time.Millisecond)
-	_ = runQuiet(bin, 8*time.Second, "--set-custom-rendezvous-server", idHost)
-	_ = runQuiet(bin, 8*time.Second, "--set-key", cfg.Key)
-	_ = runQuiet(bin, 8*time.Second, "--set-relay-server", relayHost)
-	_ = runQuiet(bin, 8*time.Second, "--set-verification-method", "use-both-passwords")
-	_ = runQuiet(bin, 8*time.Second, "--set-approve-mode", "password")
-	// Longer budget — this is the panel session password.
-	pwErr := runQuiet(bin, 20*time.Second, "--password", cfg.Password)
+	time.Sleep(2 * time.Second)
+	_ = runQuiet(bin, 10*time.Second, "--set-custom-rendezvous-server", idHost)
+	_ = runQuiet(bin, 10*time.Second, "--set-key", cfg.Key)
+	_ = runQuiet(bin, 10*time.Second, "--set-relay-server", relayHost)
+	_ = runQuiet(bin, 10*time.Second, "--set-verification-method", "use-both-passwords")
+	_ = runQuiet(bin, 10*time.Second, "--set-approve-mode", "password")
+
+	pwErr := runQuiet(bin, 25*time.Second, "--password", cfg.Password)
+	// Give RustDesk time to flush encrypted password to disk before any further steps.
+	time.Sleep(2 * time.Second)
+	if pwErr == nil {
+		// Second apply — some macOS builds no-op the first call.
+		pwErr = runQuiet(bin, 25*time.Second, "--password", cfg.Password)
+		time.Sleep(1 * time.Second)
+	}
+
 	id := strings.TrimSpace(getID(bin))
 
-	serverCancel()
-	if server.Process != nil {
-		_ = server.Process.Kill()
-	}
-	// Do not pkill the whole app family yet — kill only leftover --server if needed.
-	time.Sleep(300 * time.Millisecond)
-	_ = exec.Command("pkill", "-f", "RustDesk.app/Contents/MacOS/RustDesk --server").Run()
-	time.Sleep(300 * time.Millisecond)
-
 	_ = writeConfig(cfg)
-
 	if err := ensureRunning(app, bin); err != nil {
+		_ = server.Process.Kill()
 		st := Status{Enabled: false, Error: "start_failed", RustDeskID: id}
 		setStatus(st)
 		return st, err
 	}
 
+	// Keep --server alive (do not kill). Reap in background when it exits.
+	go func() {
+		_ = server.Wait()
+	}()
+
 	if id == "" {
-		time.Sleep(1 * time.Second)
+		time.Sleep(2 * time.Second)
 		id = strings.TrimSpace(getID(bin))
 	}
 
 	st := Status{
 		Enabled:    true,
 		RustDeskID: id,
-		RelayOK:    id != "",
+		// Only claim relay when we have an ID; true online check is hbbs-side.
+		RelayOK: id != "",
 	}
 	if id == "" {
 		st.Error = "id_pending"
@@ -277,7 +279,6 @@ func wipeConfigSecrets() error {
 }
 
 func ensureRunning(app, bin string) error {
-	// Never open -n: that forced dozens of windows when Enable was re-entered.
 	if app != "" {
 		if err := exec.Command("open", "-a", app).Run(); err == nil {
 			return nil

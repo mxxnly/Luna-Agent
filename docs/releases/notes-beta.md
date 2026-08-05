@@ -4,9 +4,9 @@ Pre-release for the `0.x` line. APIs and packaging may still change before 1.0.0
 
 ## What's new in $VERSION
 
-- Panel Update: if the WireGuard helper is offline, install it once (or elevate installer) so `agent_update` no longer fails with install_failed.
-- Autostart: Login Agents installed once; menu bar returns after reboot without Background Items spam.
-- Setup / installer text / Sonoma app icon fixes from 0.2.15–0.2.16.
+- Patch build to verify panel **Update** from 0.2.18 (install_pkg + restart).
+- Panel Update works when the WireGuard helper was offline (EnsureRootHelper / elevated installer fallback).
+- Autostart, setup, installer text, and Sonoma icon fixes from 0.2.15-0.2.18.
 
 ## Packages
 

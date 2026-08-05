@@ -4,15 +4,9 @@ Pre-release for the `0.x` line. APIs and packaging may still change before 1.0.0
 
 ## What's new in $VERSION
 
-- Setup: no false "Move to /Applications" on ad-hoc beta when the app is already installed.
-- Autostart: install Login Agents once (no re-bootstrap spam); AssociatedBundleIdentifiers so items show as LunaAgent; menu bar via bundled start-menubar.sh after reboot.
-- Installer Welcome/Read Me: UTF-8 + ASCII-safe text (no garbled dashes in Installer.app).
-- App icon: baked macOS squircle with transparent corners; do not ship flat AppIcon.png next to .icns.
-- VPN: one-time Mac password installs the WireGuard root helper as a LaunchDaemon; Connect/Disconnect then use the Unix socket without asking again (including after reboot).
-- Update: after panel `install_pkg`, wghelper restarts the menu bar app and user agent so the new version shows immediately.
-- VPN Connect/Disconnect no longer require the organization admin password and stay clickable while busy.
-- Remote: permanent password via RustDesk.toml; helper in `~/Applications/LunaRemote.app` keeps Screen Recording across Remote off/on.
-- Autostart: user LaunchAgents for menu bar and agent when SMApp Login Item does not stick on unsigned beta builds.
+- Panel Update: if the WireGuard helper is offline, install it once (or elevate installer) so `agent_update` no longer fails with install_failed.
+- Autostart: Login Agents installed once; menu bar returns after reboot without Background Items spam.
+- Setup / installer text / Sonoma app icon fixes from 0.2.15–0.2.16.
 
 ## Packages
 

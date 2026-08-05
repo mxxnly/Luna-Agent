@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -58,10 +61,83 @@ func callHelper(op string) error {
 	return err
 }
 
-// InstallPkg asks the root helper to download, verify, and install a .pkg.
+// InstallPkg downloads, verifies, and installs a .pkg.
+// Prefers the root helper; if it is offline, installs the helper once (Mac password)
+// then retries; last resort is a one-shot elevated installer.
 func InstallPkg(url, sha256 string) error {
+	url = strings.TrimSpace(url)
+	sha256 = strings.ToLower(strings.TrimSpace(sha256))
+	if url == "" || sha256 == "" {
+		return fmt.Errorf("url and sha256 required")
+	}
+
+	_ = EnsureRootHelper()
+	if helperAvailable() {
+		if err := callHelperInstall(url, sha256); err == nil {
+			return nil
+		} else if !helperAvailable() {
+			return installPkgElevated(url, sha256)
+		} else {
+			return err
+		}
+	}
+	return installPkgElevated(url, sha256)
+}
+
+func callHelperInstall(url, sha256 string) error {
 	_, err := callHelperRaw(helperReq{Op: "install_pkg", URL: url, SHA256: sha256})
 	return err
+}
+
+func installPkgElevated(url, wantSHA string) error {
+	if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
+		return fmt.Errorf("url must be http(s)")
+	}
+	if len(wantSHA) != 64 {
+		return fmt.Errorf("sha256 must be 64 hex chars")
+	}
+	dst := filepath.Join(os.TempDir(), fmt.Sprintf("LunaAgent-update-%d.pkg", os.Getpid()))
+	_ = os.Remove(dst)
+	defer os.Remove(dst)
+
+	cmd := exec.Command("curl", "-fsSL", "--connect-timeout", "30", "--max-time", "600",
+		"-A", "LunaAgent-Update/1.0", "-o", dst, url)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("download failed: %s", msg)
+	}
+	sumCmd := exec.Command("shasum", "-a", "256", dst)
+	out, err := sumCmd.Output()
+	if err != nil {
+		return fmt.Errorf("hash failed: %w", err)
+	}
+	got := strings.Fields(string(out))
+	if len(got) == 0 || !strings.EqualFold(got[0], wantSHA) {
+		return fmt.Errorf("sha256 mismatch")
+	}
+	if err := runElevated(fmt.Sprintf(`/usr/sbin/installer -pkg %q -target /`, dst)); err != nil {
+		return fmt.Errorf("installer failed: %w", err)
+	}
+	restartLunaAfterElevatedUpdate()
+	return nil
+}
+
+func restartLunaAfterElevatedUpdate() {
+	_ = exec.Command("/usr/bin/killall", "LunaAgent").Start()
+	_ = exec.Command("/usr/bin/killall", "lunaagentd").Start()
+	time.Sleep(800 * time.Millisecond)
+	uid := os.Getuid()
+	if uid > 0 {
+		domain := fmt.Sprintf("gui/%d", uid)
+		for _, label := range []string{"com.lunaagent.agent", "com.lunaagent.ui", "com.lunaagent.daemon"} {
+			_ = exec.Command("/bin/launchctl", "kickstart", "-k", domain+"/"+label).Start()
+		}
+	}
+	time.Sleep(400 * time.Millisecond)
+	_ = exec.Command("/usr/bin/open", "-a", "/Applications/LunaAgent.app").Start()
 }
 
 // HelperTunnelStatus asks the root helper for up/handshake/transfer.
@@ -83,7 +159,7 @@ func callHelperRaw(req helperReq) (helperRes, error) {
 	var zero helperRes
 	c, err := net.DialTimeout("unix", helperSock, 2*time.Second)
 	if err != nil {
-		return zero, fmt.Errorf("wg helper not running — reinstall LunaAgent.pkg (one admin password at install)")
+		return zero, fmt.Errorf("wg helper not running — Connect VPN once (Mac password) or reinstall pkg")
 	}
 	defer c.Close()
 	timeout := 60 * time.Second

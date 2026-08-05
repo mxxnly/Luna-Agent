@@ -38,17 +38,19 @@ func findOnPath(name string) string {
 }
 
 func (m *Manager) startTUN(_ string) error {
+	_ = EnsureRootHelper()
 	if helperAvailable() {
 		if err := callHelper("up"); err != nil {
 			return err
 		}
 		return m.waitAlive()
 	}
-	// Fallback: one-shot admin password (no helper installed yet).
+	// Last resort if helper install failed (e.g. user canceled password once).
 	return m.startTUNElevated()
 }
 
 func (m *Manager) stopTUN() error {
+	_ = EnsureRootHelper()
 	if helperAvailable() {
 		return callHelper("down")
 	}

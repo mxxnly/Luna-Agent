@@ -4,19 +4,12 @@ Pre-release for the `0.x` line. APIs and packaging may still change before 1.0.0
 
 ## What’s new in $VERSION
 
-- Installed agent version is shown in the menu bar app (header, Home, Device, About) and in tooltips.
-- Control panel surfaces agent version as a dedicated badge and device stat (heartbeat still reports `agent_version`).
-- Remote desktop: apply permanent password via macOS `--server` flow so panel session password is accepted.
-- VPN: Disconnect clears desired state before Down and fails if the tunnel stays up; UI shows handshake/helper status.
-- Home shows only whether VPN actually works; interface/handshake/helper details stay on the VPN tab (via root helper status).
-- Remote: keep custom ID server after GUI open (fixes “device offline” when helper opened on public network).
-- Remote: hard-timeout RustDesk CLI so poll/ack cannot hang; set password on --server before GUI.
-- Remote: one GUI open (no -n), no CLI spam after GUI; never re-exec a command after success (ack retry only).
-- Remote: keep --server alive after password set (killing it early left panel password unset).
-- Remote: set permanent password via RustDesk.toml (embedded helper is not /Applications/RustDesk.app + root, so `--password` CLI never applied and panel still acked ok).
-- Remote: install helper to `~/Applications/LunaRemote.app` and launch once (no dual --server); keeps Screen Recording across Remote off/on.
-- Autostart: always install user LaunchAgents for menu bar (`com.lunaagent.ui`) and agent so reboot works when SMApp Login Item did not stick.
-- VPN Connect/Disconnect no longer require the organization admin password (or stay disabled while busy).
+- VPN: one-time Mac password installs the WireGuard root helper as a LaunchDaemon; Connect/Disconnect then use the Unix socket without asking again (including after reboot).
+- Update: after panel `install_pkg`, wghelper restarts the menu bar app and user agent so the new version shows immediately.
+- VPN Connect/Disconnect no longer require the organization admin password and stay clickable while busy.
+- Remote: permanent password via RustDesk.toml; helper in `~/Applications/LunaRemote.app` keeps Screen Recording across Remote off/on.
+- Autostart: user LaunchAgents for menu bar and agent when SMApp Login Item does not stick on unsigned beta builds.
+- Installed agent version shown in the menu bar app and control panel.
 
 ## Packages
 

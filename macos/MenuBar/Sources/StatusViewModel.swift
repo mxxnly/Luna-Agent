@@ -9,7 +9,7 @@ extension Notification.Name {
 @available(macOS 13.0, *)
 final class StatusViewModel: ObservableObject {
   @Published var snapshot = AgentStatusSnapshot()
-  @Published var enrollURL: String = "http://91.99.71.184"
+  @Published var enrollURL: String = ""
   @Published var enrollCode: String = ""
   @Published var enrollMessage: String?
   @Published var enrollOK: Bool?

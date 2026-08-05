@@ -5,6 +5,7 @@ Pre-release for the `0.x` line. APIs and packaging may still change before 1.0.0
 ## What's new in $VERSION
 
 - Setup: no false "Move to /Applications" on ad-hoc beta when the app is already installed.
+- Autostart: install Login Agents once (no re-bootstrap spam); AssociatedBundleIdentifiers so items show as LunaAgent; menu bar via bundled start-menubar.sh after reboot.
 - Installer Welcome/Read Me: UTF-8 + ASCII-safe text (no garbled dashes in Installer.app).
 - App icon: baked macOS squircle with transparent corners; do not ship flat AppIcon.png next to .icns.
 - VPN: one-time Mac password installs the WireGuard root helper as a LaunchDaemon; Connect/Disconnect then use the Unix socket without asking again (including after reboot).

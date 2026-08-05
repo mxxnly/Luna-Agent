@@ -67,6 +67,10 @@ cp "$ROOT/branding/mark/sidebar-mark.png" "$RES/SidebarMark.png"
 cp "$ROOT/branding/mark/mark-square-dark.png" "$RES/MarkSquare.png"
 cp "$ROOT/branding/app-icon/AppIcon-512.png" "$RES/AppIconSquare.png"
 
+# Login autostart helper for user LaunchAgent (AssociatedBundleIdentifiers → LunaAgent).
+cp "$ROOT/packaging/scripts/start-menubar.sh" "$RES/start-menubar.sh"
+chmod 755 "$RES/start-menubar.sh"
+
 VERSION="${VERSION:-0.1.0}"
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>

@@ -73,7 +73,8 @@ enum DaemonManager {
   }
 
   /// Register services. Soft-fails SMAppService agent/helper on codesign errors (adhoc builds).
-  /// Always installs user LaunchAgent fallbacks so reboot still starts UI + agent.
+  /// Installs user LaunchAgent fallbacks once (idempotent) so reboot still starts UI + agent
+  /// without re-triggering "Background Items Added" on every launch.
   @discardableResult
   static func registerAll() -> String? {
     if loginItemService.status != .enabled && loginItemService.status != .requiresApproval {
@@ -102,8 +103,10 @@ enum DaemonManager {
     }
 
     // Beta / ad-hoc: SMApp Login Item often does not survive reboot. Fallbacks do.
+    // Only rewrite launchd jobs when contents change — avoid Ventura+ notification spam.
     _ = installFallbackUserAgent()
     _ = installFallbackMenuBar()
+    cleanupStaleUIHelperScript()
 
     // Only complain about location when the app really is not under /Applications.
     // Ad-hoc builds commonly leave SMAppService.mainApp as .notFound even when installed correctly.
@@ -187,11 +190,13 @@ enum DaemonManager {
     guard let bin = bundledAgentPath() else {
       return "lunaagentd missing inside LunaAgent.app — reinstall the beta pkg"
     }
-    let wg = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/luna-wg").path
-    let support = supportDir().path
+    let wgDir: String = {
+      let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/luna-wg").path
+      if FileManager.default.fileExists(atPath: bundled) { return bundled }
+      return "/Applications/LunaAgent.app/Contents/Resources/luna-wg"
+    }()
     let logs = FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent("Library/Logs/LunaAgent", isDirectory: true).path
-    try? FileManager.default.createDirectory(atPath: support, withIntermediateDirectories: true)
     try? FileManager.default.createDirectory(atPath: logs, withIntermediateDirectories: true)
 
     let plist: [String: Any] = [
@@ -201,99 +206,136 @@ enum DaemonManager {
       "KeepAlive": true,
       "ThrottleInterval": 5,
       "ProcessType": "Background",
+      // Group under LunaAgent in Login Items (avoids "lunaagentd" spam labels).
+      "AssociatedBundleIdentifiers": ["com.lunaagent.app"],
       "EnvironmentVariables": [
-        "PATH": "\(wg):/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/sbin:/usr/bin:/bin",
+        "PATH": "\(wgDir):/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/sbin:/usr/bin:/bin",
       ],
       "StandardOutPath": "\(logs)/daemon.out.log",
       "StandardErrorPath": "\(logs)/daemon.err.log",
     ]
 
-    return bootstrapLaunchAgent(plist: plist, url: fallbackAgentPlistURL(), label: fallbackAgentLabel, logTag: bin)
+    return ensureLaunchAgent(plist: plist, url: fallbackAgentPlistURL(), label: fallbackAgentLabel)
   }
 
   /// Starts the menu bar app at login when SMAppService.mainApp did not stick.
   @discardableResult
   static func installFallbackMenuBar() -> String? {
-    guard let appBin = bundledUIPath() else {
-      return "LunaAgent UI missing — reinstall the beta pkg"
-    }
-    let support = supportDir()
-    try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
-    let script = support.appendingPathComponent("start-ui.sh")
-    let body = """
-    #!/bin/bash
-    set -euo pipefail
-    export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
-    BIN=\(shellQuote(appBin))
-    if [[ ! -x "$BIN" ]]; then
-      exit 0
-    fi
-    for _ in $(seq 1 45); do
-      if pgrep -x Dock >/dev/null 2>&1; then
-        break
-      fi
-      sleep 1
-    done
-    sleep 2
-    if pid="$(pgrep -nx LunaAgent 2>/dev/null || true)" && [[ -n "$pid" ]]; then
-      while kill -0 "$pid" 2>/dev/null; do
-        sleep 5
-      done
-      exit 1
-    fi
-    exec "$BIN"
-    """
-    do {
-      try body.write(to: script, atomically: true, encoding: .utf8)
-      try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
-    } catch {
-      return "Failed to write start-ui.sh: \(error.localizedDescription)"
+    guard let script = bundledStartMenuBarPath() else {
+      return "start-menubar.sh missing inside LunaAgent.app — reinstall the beta pkg"
     }
 
+    let logs = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent("Library/Logs/LunaAgent", isDirectory: true).path
+    try? FileManager.default.createDirectory(atPath: logs, withIntermediateDirectories: true)
+
+    // RunAtLoad + KeepAlive only on crash/non-zero exit. Do not re-bootstrap on every
+    // app open (that re-fires "Background Items Added").
     let plist: [String: Any] = [
       "Label": fallbackUILabel,
-      "ProgramArguments": [script.path],
+      "ProgramArguments": [script],
       "RunAtLoad": true,
       "KeepAlive": ["SuccessfulExit": false],
       "ThrottleInterval": 10,
       "LimitLoadToSessionType": "Aqua",
       "ProcessType": "Interactive",
+      "AssociatedBundleIdentifiers": ["com.lunaagent.app"],
+      "StandardOutPath": "\(logs)/ui.out.log",
+      "StandardErrorPath": "\(logs)/ui.err.log",
     ]
-    return bootstrapLaunchAgent(plist: plist, url: fallbackUIPlistURL(), label: fallbackUILabel, logTag: appBin)
+    return ensureLaunchAgent(plist: plist, url: fallbackUIPlistURL(), label: fallbackUILabel)
   }
 
-  private static func shellQuote(_ s: String) -> String {
-    "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+  /// Prefer bundled Resources script; fall back to writing one next to the app binary path.
+  private static func bundledStartMenuBarPath() -> String? {
+    let fm = FileManager.default
+    let candidates = [
+      Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/start-menubar.sh").path,
+      "/Applications/LunaAgent.app/Contents/Resources/start-menubar.sh",
+    ]
+    for path in candidates where fm.isExecutableFile(atPath: path) {
+      return path
+    }
+    // Dev / older installs: materialize script beside Application Support once.
+    guard bundledUIPath() != nil else { return nil }
+    let support = supportDir()
+    try? fm.createDirectory(at: support, withIntermediateDirectories: true)
+    let script = support.appendingPathComponent("start-menubar.sh")
+    let body = """
+    #!/bin/bash
+    set -euo pipefail
+    export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+    APP="/Applications/LunaAgent.app"
+    BIN="${APP}/Contents/MacOS/LunaAgent"
+    if [[ ! -x "$BIN" ]]; then
+      exit 0
+    fi
+    for _ in $(seq 1 60); do
+      if pgrep -x Dock >/dev/null 2>&1; then
+        break
+      fi
+      sleep 1
+    done
+    sleep 3
+    if pgrep -x LunaAgent >/dev/null 2>&1; then
+      exit 0
+    fi
+    exec "$BIN"
+    """
+    do {
+      try body.write(to: script, atomically: true, encoding: .utf8)
+      try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+      return script.path
+    } catch {
+      return nil
+    }
   }
 
-  private static func bootstrapLaunchAgent(
+  /// Write + bootstrap only when the plist changed or the job is not loaded.
+  private static func ensureLaunchAgent(
     plist: [String: Any],
     url: URL,
-    label: String,
-    logTag: String
+    label: String
   ) -> String? {
     try? FileManager.default.createDirectory(
       at: url.deletingLastPathComponent(),
       withIntermediateDirectories: true
     )
+    let data: Data
     do {
-      let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+      data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+    } catch {
+      return "Failed to serialize LaunchAgent: \(error.localizedDescription)"
+    }
+
+    let uid = getuid()
+    let domain = "gui/\(uid)"
+    let service = "\(domain)/\(label)"
+    let existing = try? Data(contentsOf: url)
+    let loaded = shell(["/bin/launchctl", "print", service]).status == 0
+
+    if existing == data && loaded {
+      return nil
+    }
+
+    do {
       try data.write(to: url, options: .atomic)
     } catch {
       return "Failed to write LaunchAgent: \(error.localizedDescription)"
     }
 
-    let uid = getuid()
-    let domain = "gui/\(uid)"
-    _ = shell(["/bin/launchctl", "bootout", "\(domain)/\(label)"])
-    let boot = shell(["/bin/launchctl", "bootstrap", domain, url.path])
-    _ = shell(["/bin/launchctl", "enable", "\(domain)/\(label)"])
-    if boot.status != 0 {
-      _ = shell(["/bin/launchctl", "kickstart", "-k", "\(domain)/\(label)"])
-    } else {
-      _ = shell(["/bin/launchctl", "kickstart", "-k", "\(domain)/\(label)"])
+    if loaded {
+      _ = shell(["/bin/launchctl", "bootout", service])
     }
-    NSLog("LunaAgent installed fallback LaunchAgent %@ -> %@", label, logTag)
+    let boot = shell(["/bin/launchctl", "bootstrap", domain, url.path])
+    _ = shell(["/bin/launchctl", "enable", service])
+    if boot.status != 0 {
+      // Already bootstrapped with same label after race — try kickstart only.
+      _ = shell(["/bin/launchctl", "kickstart", "-k", service])
+    } else {
+      _ = shell(["/bin/launchctl", "kickstart", "-k", service])
+    }
+    NSLog("LunaAgent installed/updated LaunchAgent %@", label)
     return nil
   }
 
@@ -309,7 +351,18 @@ enum DaemonManager {
     let domain = "gui/\(uid)"
     _ = shell(["/bin/launchctl", "bootout", "\(domain)/\(fallbackUILabel)"])
     try? FileManager.default.removeItem(at: fallbackUIPlistURL())
-    try? FileManager.default.removeItem(at: supportDir().appendingPathComponent("start-ui.sh"))
+    cleanupStaleUIHelperScript()
+  }
+
+  /// Remove pre-0.2.16 Application Support start-ui.sh helper (showed as its own Background Item).
+  private static func cleanupStaleUIHelperScript() {
+    let support = supportDir()
+    try? FileManager.default.removeItem(at: support.appendingPathComponent("start-ui.sh"))
+    // Prefer bundled Resources script; drop old App Support copy when present in app.
+    let bundled = "/Applications/LunaAgent.app/Contents/Resources/start-menubar.sh"
+    if FileManager.default.isExecutableFile(atPath: bundled) {
+      try? FileManager.default.removeItem(at: support.appendingPathComponent("start-menubar.sh"))
+    }
   }
 
   private static func shell(_ args: [String]) -> (status: Int32, output: String) {

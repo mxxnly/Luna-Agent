@@ -6,6 +6,7 @@ mkdir -p "$DIST_IN"
 DIST="$(cd "$DIST_IN" && pwd)"
 APP="$DIST/LunaAgent.app"
 RES="$APP/Contents/Resources"
+rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$RES"
 
 # Deploy back to Mojave; SwiftUI paths are @available(macOS 13+).

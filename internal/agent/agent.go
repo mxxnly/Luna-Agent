@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -635,8 +636,14 @@ func (a *Agent) execCommand(c crypto.Command) (bool, string, string) {
 	case "agent_update":
 		url, _ := c.Payload["url"].(string)
 		sum, _ := c.Payload["sha256"].(string)
+		wantVer, _ := c.Payload["version"].(string)
 		url = strings.TrimSpace(url)
 		sum = strings.TrimSpace(sum)
+		wantVer = strings.TrimSpace(wantVer)
+		if wantVer != "" && wantVer == version.Version {
+			// Already on target — ack success without reinstall (breaks restart loops).
+			return true, "", "already_current"
+		}
 		if url == "" || sum == "" {
 			return false, "bad_payload", "url and sha256 required"
 		}
@@ -646,9 +653,13 @@ func (a *Agent) execCommand(c crypto.Command) (bool, string, string) {
 		if err := wg.InstallPkg(url, sum); err != nil {
 			return false, "install_failed", err.Error()
 		}
-		// launchd KeepAlive will restart updated binaries; exit after ack is sent by caller.
+		// Caller Acks first; then we restart UI + exit so launchd loads new binaries.
 		go func() {
 			time.Sleep(2 * time.Second)
+			_ = exec.Command("/usr/bin/killall", "LunaAgent").Start()
+			time.Sleep(400 * time.Millisecond)
+			_ = exec.Command("/usr/bin/open", "-a", "/Applications/LunaAgent.app").Start()
+			time.Sleep(300 * time.Millisecond)
 			os.Exit(0)
 		}()
 		return true, "", ""

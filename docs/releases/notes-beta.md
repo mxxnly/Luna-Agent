@@ -4,9 +4,9 @@ Pre-release for the `0.x` line. APIs and packaging may still change before 1.0.0
 
 ## What's new in $VERSION
 
-- Patch build to verify panel **Update** from 0.2.18 (install_pkg + restart).
-- Panel Update works when the WireGuard helper was offline (EnsureRootHelper / elevated installer fallback).
-- Autostart, setup, installer text, and Sonoma icon fixes from 0.2.15-0.2.18.
+- Fix panel Update restart loop: install no longer kills the agent before Ack; pending Update no longer re-runs forever.
+- Skip reinstall when already on the target version (`already_current`).
+- Panel Update helper-offline fallback from 0.2.18.
 
 ## Packages
 

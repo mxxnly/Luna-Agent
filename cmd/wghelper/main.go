@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/mxxnly/Luna-Agent/internal/bundlepath"
 	"golang.org/x/sys/unix"
@@ -259,48 +258,9 @@ func installPkg(url, wantSHA string) error {
 		}
 		return fmt.Errorf("installer failed: %s", msg)
 	}
-	restartLunaAfterUpdate()
+	// Do NOT kill lunaagentd here — the agent must Ack the command first.
+	// Otherwise the panel command stays pending and the new agent re-runs Update forever.
 	return nil
-}
-
-// restartLunaAfterUpdate quits the menu bar + user agent so launchd / open
-// picks up the newly installed binaries (otherwise UI keeps the old process).
-func restartLunaAfterUpdate() {
-	_ = exec.Command("/usr/bin/killall", "LunaAgent").Run()
-	_ = exec.Command("/usr/bin/killall", "lunaagentd").Run()
-	time.Sleep(800 * time.Millisecond)
-
-	uid := consoleUID()
-	if uid <= 0 {
-		_ = exec.Command("/usr/bin/open", "-a", "/Applications/LunaAgent.app").Run()
-		return
-	}
-	domain := fmt.Sprintf("gui/%d", uid)
-	for _, label := range []string{
-		"com.lunaagent.agent",
-		"com.lunaagent.ui",
-		"com.lunaagent.daemon",
-	} {
-		_ = exec.Command("/bin/launchctl", "kickstart", "-k", domain+"/"+label).Run()
-	}
-	time.Sleep(500 * time.Millisecond)
-	_ = exec.Command(
-		"/bin/launchctl", "asuser", strconv.Itoa(uid),
-		"/usr/bin/open", "-a", "/Applications/LunaAgent.app",
-	).Run()
-}
-
-func consoleUID() int {
-	// /dev/console owner is the logged-in GUI user.
-	out, err := exec.Command("/usr/bin/stat", "-f", "%u", "/dev/console").Output()
-	if err != nil {
-		return 0
-	}
-	uid, err := strconv.Atoi(strings.TrimSpace(string(out)))
-	if err != nil || uid <= 0 {
-		return 0
-	}
-	return uid
 }
 
 // wireguard-go creates /var/run/wireguard/wg0.name as 0400 root — user agent

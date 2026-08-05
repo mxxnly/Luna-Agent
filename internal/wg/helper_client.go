@@ -121,23 +121,8 @@ func installPkgElevated(url, wantSHA string) error {
 	if err := runElevated(fmt.Sprintf(`/usr/sbin/installer -pkg %q -target /`, dst)); err != nil {
 		return fmt.Errorf("installer failed: %w", err)
 	}
-	restartLunaAfterElevatedUpdate()
+	// Restart is scheduled by the agent after a successful Ack (not here).
 	return nil
-}
-
-func restartLunaAfterElevatedUpdate() {
-	_ = exec.Command("/usr/bin/killall", "LunaAgent").Start()
-	_ = exec.Command("/usr/bin/killall", "lunaagentd").Start()
-	time.Sleep(800 * time.Millisecond)
-	uid := os.Getuid()
-	if uid > 0 {
-		domain := fmt.Sprintf("gui/%d", uid)
-		for _, label := range []string{"com.lunaagent.agent", "com.lunaagent.ui", "com.lunaagent.daemon"} {
-			_ = exec.Command("/bin/launchctl", "kickstart", "-k", domain+"/"+label).Start()
-		}
-	}
-	time.Sleep(400 * time.Millisecond)
-	_ = exec.Command("/usr/bin/open", "-a", "/Applications/LunaAgent.app").Start()
 }
 
 // HelperTunnelStatus asks the root helper for up/handshake/transfer.

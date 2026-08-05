@@ -54,8 +54,9 @@ cp "$ICONS/AppIcon-256@2x.png"  "$ICONSET/icon_256x256@2x.png"
 cp "$ICONS/AppIcon-512.png"     "$ICONSET/icon_512x512.png"
 cp "$ICONS/AppIcon-512@2x.png"  "$ICONSET/icon_512x512@2x.png"
 iconutil -c icns "$ICONSET" -o "$RES/AppIcon.icns"
-cp "$ICONS/AppIcon-512.png" "$RES/AppIcon.png"
 rm -rf "$ICONSET"
+# Do not ship AppIcon.png next to AppIcon.icns — Finder may pick the flat PNG
+# and show a hard square instead of the masked .icns.
 
 # --- Menu bar template + window mark ---
 MB="$ROOT/branding/menubar"
@@ -64,7 +65,6 @@ cp "$MB/MenuBarTemplate-22@2x.png" "$RES/MenuBarTemplate@2x.png"
 cp "$ROOT/branding/mark/sidebar-mark.png" "$RES/SidebarMark.png"
 cp "$ROOT/branding/mark/mark-square-dark.png" "$RES/MarkSquare.png"
 cp "$ROOT/branding/app-icon/AppIcon-512.png" "$RES/AppIconSquare.png"
-cp "$ROOT/branding/app-icon/AppIcon-512.png" "$RES/AppIcon.png"
 
 VERSION="${VERSION:-0.1.0}"
 cat > "$APP/Contents/Info.plist" <<EOF

@@ -1,4 +1,4 @@
-LunaAgent — macOS 13+ (Beta)
+LunaAgent - macOS 13+ (Beta)
 ============================
 
 Version: __VERSION__
@@ -13,7 +13,7 @@ What you get
 First launch
 ------------
 Complete Finish setup. Approve Background / Login Items under
-System Settings → General → Login Items & Extensions when asked.
+System Settings -> General -> Login Items & Extensions when asked.
 
 Uninstall
 ---------
@@ -22,4 +22,4 @@ Enrollment may remain under ~/Library/Application Support/LunaAgent.
 
 Docs: https://github.com/mxxnly/Luna-Agent/blob/main/docs/install-13plus.md
 
-Do not use this package on macOS 10.14–12 — use LunaAgent_Legacy_10.14.pkg.
+Do not use this package on macOS 10.14-12 - use LunaAgent_Legacy_10.14.pkg.

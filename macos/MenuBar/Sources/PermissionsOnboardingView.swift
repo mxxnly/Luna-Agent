@@ -12,7 +12,7 @@ struct PermissionsOnboardingView: View {
     VStack(alignment: .leading, spacing: 16) {
       Text("Finish setup (Beta)")
         .font(.title2.weight(.semibold))
-      Text("LunaAgent needs background services for VPN and the menu bar, plus optional alerts if the tunnel drops unexpectedly.")
+      Text("LunaAgent needs background services for VPN and the menu bar, plus optional alerts if the tunnel drops unexpectedly. On unsigned beta builds, LaunchAgent fallbacks are enough even if some rows say \"fallback\".")
         .font(.callout)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
@@ -100,6 +100,7 @@ struct PermissionsOnboardingView: View {
           message = "Approve LunaAgent under Login Items & Extensions, then tap Continue."
           DaemonManager.openLoginItemsSettings()
         } else {
+          // Ad-hoc beta: SMApp may stay .notFound while LaunchAgent fallbacks work.
           finish()
         }
       }

@@ -55,9 +55,21 @@ enum DaemonManager {
     case .enabled: return "Enabled"
     case .requiresApproval: return "Needs approval in System Settings"
     case .notRegistered: return "Not registered"
-    case .notFound: return "Unavailable — keep app in /Applications"
+    case .notFound:
+      // Ad-hoc beta: SMAppService often reports notFound even from /Applications.
+      return isRunningFromApplications()
+        ? "Using LaunchAgent fallback (OK for beta)"
+        : "Move app to /Applications"
     @unknown default: return "Unknown"
     }
+  }
+
+  /// True when this process is running from /Applications/LunaAgent.app (resolved).
+  static func isRunningFromApplications() -> Bool {
+    let path = Bundle.main.bundleURL.resolvingSymlinksInPath().path
+    if path.hasPrefix("/Applications/LunaAgent.app") { return true }
+    return FileManager.default.fileExists(atPath: "/Applications/LunaAgent.app")
+      && path.hasPrefix("/Applications/")
   }
 
   /// Register services. Soft-fails SMAppService agent/helper on codesign errors (adhoc builds).
@@ -93,7 +105,9 @@ enum DaemonManager {
     _ = installFallbackUserAgent()
     _ = installFallbackMenuBar()
 
-    if snapshot().loginItem == .notFound {
+    // Only complain about location when the app really is not under /Applications.
+    // Ad-hoc builds commonly leave SMAppService.mainApp as .notFound even when installed correctly.
+    if !isRunningFromApplications() {
       return "Move LunaAgent to /Applications, then try again."
     }
     _ = softErrors

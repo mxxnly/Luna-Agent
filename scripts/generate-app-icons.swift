@@ -16,7 +16,6 @@ guard let srcImg = NSImage(contentsOf: URL(fileURLWithPath: srcPath)) else {
   exit(1)
 }
 
-let midnight = NSColor(srgbRed: 0x0B / 255.0, green: 0x12 / 255.0, blue: 0x20 / 255.0, alpha: 1)
 let rep = NSBitmapImageRep(
   bitmapDataPlanes: nil,
   pixelsWide: size,
@@ -33,12 +32,17 @@ rep.size = NSSize(width: size, height: size)
 NSGraphicsContext.saveGraphicsState()
 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
 NSGraphicsContext.current?.imageInterpolation = .high
-midnight.setFill()
-NSRect(x: 0, y: 0, width: size, height: size).fill()
-// Full-bleed mark (already square). Slight inset (~8%) so macOS squircle mask doesn't clip.
-let inset = CGFloat(size) * 0.08
+// Transparent outside the macOS squircle so Finder/Dock never show a hard square
+// (unsigned/LSUIElement builds sometimes skip the system icon mask on Sonoma).
+let canvas = NSRect(x: 0, y: 0, width: size, height: size)
+NSColor.clear.setFill()
+canvas.fill()
+let radius = CGFloat(size) * 0.2237
+let squircle = NSBezierPath(roundedRect: canvas, xRadius: radius, yRadius: radius)
+squircle.addClip()
+// Full-bleed mark inside the mask (source is already square art).
 srcImg.draw(
-  in: NSRect(x: inset, y: inset, width: CGFloat(size) - inset * 2, height: CGFloat(size) - inset * 2),
+  in: canvas,
   from: .zero,
   operation: .sourceOver,
   fraction: 1.0,

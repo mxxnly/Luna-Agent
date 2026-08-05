@@ -112,7 +112,7 @@ DIST_XML_MODERN="$DIST/distribution-13plus.xml"
 cat > "$DIST_XML_MODERN" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
-  <title>LunaAgent (Beta) — macOS 13+</title>
+  <title>LunaAgent (Beta) - macOS 13+</title>
   <organization>com.lunaagent</organization>
   <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
   <options customize="never" require-scripts="false" hostArchitectures="x86_64,arm64"/>
@@ -134,22 +134,30 @@ RES_MODERN="$DIST/product-resources-13plus"
 rm -rf "$RES_MODERN"
 mkdir -p "$RES_MODERN/en.lproj"
 cat > "$RES_MODERN/en.lproj/Welcome.html" <<'HTML'
-<html><body style="font-family: -apple-system; font-size: 13px;">
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Welcome</title></head>
+<body style="font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 13px; color: #111;">
 <h2>LunaAgent (Beta) for macOS 13+</h2>
 <p>This beta installs a self-contained <b>LunaAgent.app</b> in Applications.</p>
 <p>On first launch you will be asked to allow <b>Login Items / Background</b> services for the VPN agent and WireGuard helper. No files are installed under <code>/usr/local</code>.</p>
-<p>Use the <b>Legacy</b> package only on macOS 10.14–12.</p>
-</body></html>
+<p>Use the <b>Legacy</b> package only on macOS 10.14-12.</p>
+</body>
+</html>
 HTML
 cat > "$RES_MODERN/en.lproj/ReadMe.html" <<'HTML'
-<html><body style="font-family: -apple-system; font-size: 13px;">
-<h2>Read Me — Beta</h2>
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Read Me</title></head>
+<body style="font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 13px; color: #111;">
+<h2>Read Me - Beta</h2>
 <ul>
 <li>Requires macOS 13 Ventura or newer.</li>
 <li>After install, open LunaAgent and complete setup (Background Items + optional notifications).</li>
 <li>Uninstall: move LunaAgent to Trash (background services unregister with the app). Enrollment data under Application Support is kept unless you clear it in the UI.</li>
 </ul>
-</body></html>
+</body>
+</html>
 HTML
 
 PRODUCT_MODERN="$DIST/LunaAgent_13plus.pkg"
@@ -183,7 +191,7 @@ DIST_XML_LEGACY="$DIST/distribution-legacy.xml"
 cat > "$DIST_XML_LEGACY" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
-  <title>LunaAgent Legacy (Beta) — macOS 10.14–12</title>
+  <title>LunaAgent Legacy (Beta) - macOS 10.14-12</title>
   <organization>com.lunaagent</organization>
   <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
   <options customize="never" require-scripts="true" hostArchitectures="x86_64,arm64"/>
@@ -205,21 +213,29 @@ RES_LEGACY="$DIST/product-resources-legacy"
 rm -rf "$RES_LEGACY"
 mkdir -p "$RES_LEGACY/en.lproj"
 cat > "$RES_LEGACY/en.lproj/Welcome.html" <<'HTML'
-<html><body style="font-family: -apple-system; font-size: 13px;">
-<h2>LunaAgent Legacy (Beta) for macOS 10.14–12</h2>
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Welcome</title></head>
+<body style="font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 13px; color: #111;">
+<h2>LunaAgent Legacy (Beta) for macOS 10.14-12</h2>
 <p>Reduced UI (enroll, VPN connect/disconnect, WireGuard config). No full metrics/SwiftUI.</p>
 <p>Install requires an admin password once to register the WireGuard helper. Prefer <b>LunaAgent_13plus.pkg</b> on macOS 13+.</p>
-</body></html>
+</body>
+</html>
 HTML
 cat > "$RES_LEGACY/en.lproj/ReadMe.html" <<'HTML'
-<html><body style="font-family: -apple-system; font-size: 13px;">
-<h2>Read Me — Legacy Beta</h2>
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Read Me</title></head>
+<body style="font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 13px; color: #111;">
+<h2>Read Me - Legacy Beta</h2>
 <ul>
 <li>For macOS 10.14 Mojave through 12 Monterey only.</li>
 <li>Binaries live inside LunaAgent.app; launchd plists point into Applications.</li>
-<li>After deleting the app, residual LaunchAgents/Daemons may remain — see README-Legacy.txt.</li>
+<li>After deleting the app, residual LaunchAgents/Daemons may remain - see README-Legacy.txt.</li>
 </ul>
-</body></html>
+</body>
+</html>
 HTML
 
 PRODUCT_LEGACY="$DIST/LunaAgent_Legacy_10.14.pkg"

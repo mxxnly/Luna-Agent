@@ -5,8 +5,8 @@ Beta line (0.x.y). Expect change until 1.0.0.
 
 Which package?
 --------------
-  macOS 13 Ventura or newer  →  LunaAgent_13plus.pkg
-  macOS 10.14–12             →  LunaAgent_Legacy_10.14.pkg
+  macOS 13 Ventura or newer  ->  LunaAgent_13plus.pkg
+  macOS 10.14-12             ->  LunaAgent_Legacy_10.14.pkg
 
   sw_vers -productVersion
 
